@@ -1,0 +1,56 @@
+# RedditNarratoAI 配置文件
+# Reddit帖子 → AI文案改写 → 带字幕配音的影视视频
+
+[app]
+name = "RedditNarratoAI"
+version = "0.1.0"
+debug = false
+
+[reddit]
+# Reddit API 凭证 (从 https://www.reddit.com/prefs/apps 获取)
+creds = { }
+
+[llm]
+# OpenAI兼容API (支持Ollama)
+provider = "openai"  # openai / azure / ollama
+api_base = "http://localhost:11434/v1"  # Ollama默认地址
+api_key = "not-needed"  # Ollama不需要key
+model = "deepseek-r1:32b"  # 或 qwen2.5:32b 等
+max_tokens = 4096
+temperature = 0.7
+
+[tts]
+# TTS引擎: edge (推荐) / elevenlabs / gtts / azure
+provider = "edge"
+voice = "zh-CN-XiaoxiaoNeural"  # 中文语音
+rate = "+0%"
+pitch = "+0Hz"
+volume = "+0%"
+
+[video]
+# 输出设置
+output_dir = "./output"
+width = 1920
+height = 1080
+fps = 30
+codec = "libx264"
+audio_codec = "aac"
+
+[subtitle]
+# 字幕设置
+font = "SimHei"
+font_size = 36
+color = "#FFFFFF"
+bg_color = "#00000080"
+position = "bottom"  # bottom / top / center
+
+[video_background]
+# 背景素材来源
+source = "auto"  # auto: AI分析选择 / reddit_images: Reddit图片 / local: 本地视频
+local_video_path = "./resource/videos"
+image_dir = "./resource/images"
+
+[path]
+# 资源目录
+ffmpeg = "ffmpeg"  # 或完整路径
+fonts_dir = "./fonts"
