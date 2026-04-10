@@ -1,0 +1,49 @@
+services:
+  app:
+    build: .
+    container_name: redditnarratoai
+    volumes:
+      - ./config.toml:/app/config.toml
+      - ./output:/app/output
+      - ./resource:/app/resource
+      - ./cache:/app/cache
+    depends_on:
+      - ollama
+    networks:
+      - narrato-net
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    networks:
+      - narrato-net
+    # 拉取模型（首次启动后手动执行）:
+    # docker exec -it ollama ollama pull deepseek-r1:32b
+
+  webui:
+    build: .
+    container_name: redditnarratoai-webui
+    entrypoint: ["streamlit", "run", "webui.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./config.toml:/app/config.toml
+      - ./output:/app/output
+      - ./resource:/app/resource
+    depends_on:
+      - ollama
+    networks:
+      - narrato-net
+
+networks:
+  narrato-net:
+    driver: bridge
+
+volumes:
+  ollama-models:
