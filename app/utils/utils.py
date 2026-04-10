@@ -14,7 +14,11 @@ from datetime import datetime, timedelta
 
 from app.models import const
 from app.utils import check_script
-from app.services import material
+
+try:
+    from app.services import material
+except ImportError:
+    material = None
 
 urllib3.disable_warnings()
 

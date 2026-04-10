@@ -7,9 +7,18 @@ from typing import Optional
 # from faster_whisper import WhisperModel
 from timeit import default_timer as timer
 from loguru import logger
-import google.generativeai as genai
-from moviepy import VideoFileClip
 import os
+
+# Optional imports
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
+
+try:
+    from moviepy import VideoFileClip
+except ImportError:
+    VideoFileClip = None
 
 from app.config import config
 from app.utils import utils
@@ -460,3 +469,59 @@ if __name__ == "__main__":
     # #
     # # if gemini_subtitle_file:
     # #     print(f"Gemini生成的字幕文件: {gemini_subtitle_file}")
+
+
+def create_srt_from_text(text: str, output_path: str, config_dict: dict = None) -> str:
+    """
+    RedditNarratoAI 流水线使用的字幕生成函数。
+    根据文本内容生成简单的 SRT 字幕文件，基于每字时长估算。
+
+    Args:
+        text: 解说文案文本
+        output_path: SRT 字幕输出路径
+        config_dict: 配置字典 (可选)
+
+    Returns:
+        str: 生成的字幕文件路径
+    """
+    # 确保输出目录存在
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    # 将文本按句子拆分
+    lines = [l.strip() for l in text.split('\n') if l.strip()]
+    if not lines:
+        lines = [text]
+
+    # 估算每字朗读时间 (中文约 0.25-0.35 秒/字)
+    chars_per_second = 3.5  # 每秒约3.5个字
+
+    srt_entries = []
+    current_time = 0.0
+
+    for idx, line in enumerate(lines, 1):
+        duration = max(1.0, len(line) / chars_per_second)
+        start_time = current_time
+        end_time = current_time + duration
+
+        start_ts = _seconds_to_srt_timestamp(start_time)
+        end_ts = _seconds_to_srt_timestamp(end_time)
+
+        srt_entries.append(f"{idx}\n{start_ts} --> {end_ts}\n{line}\n")
+        current_time = end_time + 0.1  # 句间间隔
+
+    srt_content = "\n".join(srt_entries) + "\n"
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(srt_content)
+
+    logger.info(f"字幕文件已生成: {output_path}, 共 {len(srt_entries)} 条")
+    return output_path
+
+
+def _seconds_to_srt_timestamp(seconds: float) -> str:
+    """将秒数转换为 SRT 时间戳格式 (HH:MM:SS,mmm)"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = seconds % 60
+    milliseconds = int((secs - int(secs)) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{int(secs):02d},{milliseconds:03d}"

@@ -2269,3 +2269,82 @@ def indextts2_tts(text: str, voice_name: str, voice_file: str, speed: float = 1.
 
     logger.error("IndexTTS2 TTS 生成失败，已达到最大重试次数")
     return None
+
+
+def generate_voice(text: str, output_dir: str, config_dict: dict = None) -> tuple:
+    """
+    RedditNarratoAI 流水线使用的语音生成函数。
+    将文案文本拆分为段落，逐段生成语音，最后合并。
+
+    Args:
+        text: 完整的解说文案
+        output_dir: 输出目录
+        config_dict: 配置字典，包含 tts 配置
+
+    Returns:
+        tuple: (audio_path, durations) - 音频文件路径和每段时长列表
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    tts_config = (config_dict or {}).get("tts", {})
+    voice_name = tts_config.get("voice", "zh-CN-XiaoxiaoNeural")
+    voice_rate = 1.0
+    voice_pitch = 1.0
+
+    # 拆分为段落
+    paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
+    if not paragraphs:
+        paragraphs = [text]
+
+    audio_files = []
+    durations = []
+
+    for i, paragraph in enumerate(paragraphs):
+        voice_file = os.path.join(output_dir, f"voice_{i:03d}.mp3")
+        logger.info(f"生成第 {i + 1}/{len(paragraphs)} 段语音: {paragraph[:30]}...")
+
+        try:
+            sub_maker = azure_tts_v1(
+                text=paragraph,
+                voice_name=voice_name,
+                voice_rate=voice_rate,
+                voice_pitch=voice_pitch,
+                voice_file=voice_file,
+            )
+
+            if sub_maker and os.path.exists(voice_file):
+                duration = get_audio_duration_from_file(voice_file)
+                audio_files.append(voice_file)
+                durations.append(duration)
+            else:
+                logger.warning(f"第 {i + 1} 段语音生成失败，使用估算时长")
+                durations.append(len(paragraph) * 0.3)  # 估算: 每字0.3秒
+        except Exception as e:
+            logger.error(f"第 {i + 1} 段语音生成出错: {e}")
+            durations.append(len(paragraph) * 0.3)
+
+    if not audio_files:
+        logger.error("没有任何语音生成成功")
+        return "", []
+
+    # 合并所有音频文件
+    final_audio_path = os.path.join(output_dir, "narration.mp3")
+
+    if len(audio_files) == 1:
+        import shutil
+        shutil.copy2(audio_files[0], final_audio_path)
+    else:
+        try:
+            from pydub import AudioSegment
+            combined = AudioSegment.empty()
+            for af in audio_files:
+                segment = AudioSegment.from_file(af)
+                combined += segment
+            combined.export(final_audio_path, format="mp3")
+        except ImportError:
+            logger.warning("pydub 未安装，仅使用第一个音频文件")
+            import shutil
+            shutil.copy2(audio_files[0], final_audio_path)
+
+    logger.info(f"语音生成完成: {final_audio_path}, 共 {len(durations)} 段")
+    return final_audio_path, durations

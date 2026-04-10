@@ -13,7 +13,7 @@ from loguru import logger
 
 from app.config import config
 from app.services.reddit import RedditFetcher, RedditContent
-from app.services.llm import generate_script
+from app.services.llm import generate_script_simple
 from app.services.voice import generate_voice
 from app.services.subtitle import create_srt_from_text
 
@@ -199,9 +199,9 @@ class RedditVideoPipeline:
 """
         
         try:
-            script = generate_script(
+            script = generate_script_simple(
                 prompt=prompt,
-                config=self.config,
+                config_dict=self.config,
                 system_prompt="你是一个专业的影视解说博主，擅长将网络内容改写成吸引人的短视频文案。"
             )
             return script.strip()
@@ -220,7 +220,7 @@ class RedditVideoPipeline:
             audio_path, durations = generate_voice(
                 text=script,
                 output_dir=str(self.output_dir / session_id),
-                config=self.config
+                config_dict=self.config
             )
             
             # 根据duration切分segments
@@ -252,7 +252,7 @@ class RedditVideoPipeline:
             create_srt_from_text(
                 text=script,
                 output_path=subtitle_path,
-                config=self.config
+                config_dict=self.config
             )
             return subtitle_path
         except Exception as e:
@@ -276,7 +276,7 @@ class RedditVideoPipeline:
                 audio_path=audio_path,
                 subtitle_path=subtitle_path,
                 output_dir=str(self.output_dir / session_id),
-                config=self.config,
+                config_dict=self.config,
                 title=content.thread_title
             )
             return video_path or ""
