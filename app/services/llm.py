@@ -9,10 +9,16 @@ from openai import OpenAI
 from openai import AzureOpenAI
 from moviepy import VideoFileClip
 from openai.types.chat import ChatCompletion
-import google.generativeai as gemini
-from googleapiclient.errors import ResumableUploadError
-from google.api_core.exceptions import *
-from google.generativeai.types import *
+try:
+    import google.generativeai as gemini
+    from googleapiclient.errors import ResumableUploadError
+    from google.api_core.exceptions import *
+    from google.generativeai.types import *
+    GEMINI_AVAILABLE = True
+except ImportError:
+    gemini = None
+    GEMINI_AVAILABLE = False
+    logger.warning("google-generativeai 未安装，Gemini功能不可用")
 import subprocess
 from typing import Union, TextIO
 

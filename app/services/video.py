@@ -415,3 +415,97 @@ def generate_video_v3(
         bgm.close()
     if narration_path:
         narration.close()
+
+
+def create_video_from_segments(
+    segments: list,
+    audio_path: str,
+    subtitle_path: str,
+    output_dir: str,
+    config: dict = None,
+    title: str = ""
+) -> Optional[str]:
+    """
+    高级封装：从segments创建视频（为pipeline提供的接口）
+
+    Args:
+        segments: VideoSegment列表
+        audio_path: 配音音频路径
+        subtitle_path: 字幕文件路径
+        output_dir: 输出目录
+        config: 配置字典
+        title: 视频标题
+
+    Returns:
+        str: 输出视频路径，失败返回None
+    """
+    import os
+    os.makedirs(output_dir, exist_ok=True)
+
+    output_path = os.path.join(output_dir, "final_video.mp4")
+    video_config = (config or {}).get("video", {})
+    width = video_config.get("width", 1920)
+    height = video_config.get("height", 1080)
+    fps = video_config.get("fps", 30)
+
+    try:
+        # Calculate total duration from audio
+        if audio_path and os.path.exists(audio_path):
+            audio_clip = AudioFileClip(audio_path)
+            total_duration = audio_clip.duration
+        elif segments:
+            total_duration = max(s.end_time for s in segments) if segments else 10.0
+        else:
+            total_duration = 10.0
+
+        # Create a simple colored background video
+        from moviepy import ColorClip
+        bg_clip = ColorClip(size=(width, height), color=(30, 30, 30), duration=total_duration)
+        bg_clip = bg_clip.with_fps(fps)
+
+        clips = [bg_clip]
+
+        # Add title text if available
+        if title:
+            try:
+                title_clip = TextClip(
+                    text=title[:50],
+                    font_size=48,
+                    color='white',
+                    size=(width - 100, None),
+                    duration=min(5.0, total_duration),
+                )
+                title_clip = title_clip.with_position(('center', 100))
+                clips.append(title_clip)
+            except Exception as e:
+                logger.warning(f"添加标题失败: {e}")
+
+        # Compose video
+        final_video = CompositeVideoClip(clips, size=(width, height))
+
+        # Add audio
+        if audio_path and os.path.exists(audio_path):
+            final_video = final_video.with_audio(audio_clip)
+
+        # Write output
+        final_video.write_videofile(
+            output_path,
+            fps=fps,
+            codec=video_config.get("codec", "libx264"),
+            audio_codec=video_config.get("audio_codec", "aac"),
+            logger=None
+        )
+
+        # Cleanup
+        final_video.close()
+        bg_clip.close()
+        if audio_path and os.path.exists(audio_path):
+            audio_clip.close()
+
+        logger.info(f"视频生成成功: {output_path}")
+        return output_path
+
+    except Exception as e:
+        logger.error(f"视频合成失败: {e}")
+        logger.error(traceback.format_exc())
+        return None

@@ -2269,3 +2269,86 @@ def indextts2_tts(text: str, voice_name: str, voice_file: str, speed: float = 1.
 
     logger.error("IndexTTS2 TTS 生成失败，已达到最大重试次数")
     return None
+
+
+def generate_voice(text: str, output_dir: str, config: dict = None) -> Tuple[str, List[float]]:
+    """
+    高级封装：为pipeline提供的TTS生成接口
+
+    Args:
+        text: 需要生成语音的文本
+        output_dir: 输出目录
+        config: 配置字典
+
+    Returns:
+        (audio_path, durations): 音频文件路径和每段时长列表
+    """
+    import os
+    os.makedirs(output_dir, exist_ok=True)
+
+    tts_config = (config or {}).get("tts", {})
+    voice_name = tts_config.get("voice", "zh-CN-XiaoxiaoNeural")
+    tts_engine = tts_config.get("provider", "edge")
+    # Map provider names to engine names
+    engine_map = {"edge": "edge_tts", "azure": "azure_speech", "edge_tts": "edge_tts"}
+    tts_engine = engine_map.get(tts_engine, "edge_tts")
+
+    voice_rate = tts_config.get("rate", "+0%")
+    voice_pitch = tts_config.get("pitch", "+0Hz")
+
+    # Convert rate/pitch strings to floats if needed
+    if isinstance(voice_rate, str):
+        voice_rate = 1.0
+    if isinstance(voice_pitch, str):
+        voice_pitch = 1.0
+
+    # Split text into paragraphs
+    paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
+    if not paragraphs:
+        paragraphs = [text]
+
+    durations = []
+    audio_files = []
+
+    for i, para in enumerate(paragraphs):
+        voice_file = os.path.join(output_dir, f"voice_{i:03d}.mp3")
+        try:
+            sub_maker = tts(
+                text=para,
+                voice_name=voice_name,
+                voice_rate=voice_rate,
+                voice_pitch=voice_pitch,
+                voice_file=voice_file,
+                tts_engine=tts_engine
+            )
+            if sub_maker and os.path.exists(voice_file):
+                duration = get_audio_duration_from_file(voice_file)
+                durations.append(duration)
+                audio_files.append(voice_file)
+            else:
+                # Estimate duration based on text length
+                durations.append(len(para) * 0.15)
+                logger.warning(f"TTS生成段落 {i} 失败，使用估算时长")
+        except Exception as e:
+            logger.error(f"TTS生成段落 {i} 出错: {e}")
+            durations.append(len(para) * 0.15)
+
+    # Merge audio files if multiple
+    if len(audio_files) == 1:
+        final_audio = audio_files[0]
+    elif len(audio_files) > 1:
+        final_audio = os.path.join(output_dir, "merged_voice.mp3")
+        try:
+            from pydub import AudioSegment
+            combined = AudioSegment.empty()
+            for af in audio_files:
+                segment = AudioSegment.from_file(af)
+                combined += segment
+            combined.export(final_audio, format="mp3")
+        except Exception as e:
+            logger.error(f"合并音频失败: {e}")
+            final_audio = audio_files[0]
+    else:
+        final_audio = ""
+
+    return final_audio, durations

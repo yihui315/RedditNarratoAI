@@ -17,7 +17,10 @@ from loguru import logger
 
 # 导入新的LLM服务模块 - 确保提供商被注册
 import app.services.llm  # 这会触发提供商注册
-from app.services.llm.migration_adapter import generate_narration as generate_narration_new
+try:
+    from app.services.llm.migration_adapter import generate_narration as generate_narration_new
+except (ImportError, AttributeError):
+    generate_narration_new = None
 # 导入新的提示词管理系统
 from app.services.prompts import PromptManager
 
