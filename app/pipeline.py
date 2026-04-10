@@ -376,7 +376,6 @@ class RedditVideoPipeline:
         # 并行运行三个 Subagent
         try:
             loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
             summary, emotion_curve, broll_keywords = loop.run_until_complete(
                 asyncio.gather(
                     _subagent_summarize_comments(

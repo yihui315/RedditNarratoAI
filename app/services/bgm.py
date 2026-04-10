@@ -144,7 +144,7 @@ class BGMService:
         try:
             # 创建空白音轨
             combined = AudioSegment.silent(duration=total_duration_ms)
-            volume_db = 20 * (self.volume ** 0.5) - 20  # 线性音量转 dB
+            volume_db = -20 if self.volume <= 0 else 20 * __import__('math').log10(self.volume)
 
             for i, (segment, bgm_path) in enumerate(zip(timeline, bgm_files)):
                 if not bgm_path or not os.path.exists(bgm_path):

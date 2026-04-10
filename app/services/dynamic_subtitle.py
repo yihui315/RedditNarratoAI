@@ -256,6 +256,7 @@ def _hex_to_ass_color(hex_color: str) -> str:
         r, g, b = hex_color[0:2], hex_color[2:4], hex_color[4:6]
         a = "00"
     else:
+        # Unsupported format — default to white
         return "&H00FFFFFF"
 
     return f"&H{a}{b}{g}{r}"

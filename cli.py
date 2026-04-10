@@ -147,7 +147,7 @@ def single(reddit_url, output_dir, no_broll, no_bgm, voice, model, dry_run):
 
     _print_result(result)
 
-    if result.dry_run if hasattr(result, 'dry_run') else dry_run:
+    if result.script and getattr(result, 'dry_run', dry_run):
         if result.script:
             print("\n📝 生成的文案:")
             print("-" * 40)

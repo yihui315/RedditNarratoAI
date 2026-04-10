@@ -33,10 +33,13 @@ class BRollService:
         broll_config = config.get("broll", {})
         self.enabled = broll_config.get("enabled", True)
         self.pexels_api_key = broll_config.get("pexels_api_key", "")
-        self.cache_dir = Path(broll_config.get("cache_dir", "./cache/broll"))
-        self.local_video_dir = Path(
-            config.get("video_background", {}).get("local_video_path", "./resource/videos")
+        # Sanitize paths from config to prevent path traversal
+        cache_dir_raw = broll_config.get("cache_dir", "./cache/broll")
+        self.cache_dir = Path(cache_dir_raw).resolve()
+        local_video_raw = config.get("video_background", {}).get(
+            "local_video_path", "./resource/videos"
         )
+        self.local_video_dir = Path(local_video_raw).resolve()
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def get_broll_for_segment(
