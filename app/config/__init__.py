@@ -3,8 +3,12 @@ import sys
 
 from loguru import logger
 
-# Import the config submodule so that `from app.config import config` works
-from app.config import config  # noqa: E402
+# Import the config submodule using a relative import so that
+# `from app.config import config` works in other modules.
+# Using `from . import config` avoids the circular import that occurs when
+# the package's own __init__.py tries to absolute-import from itself while
+# the package is still being initialized.
+from . import config  # noqa: E402
 
 
 def __init_logger():
