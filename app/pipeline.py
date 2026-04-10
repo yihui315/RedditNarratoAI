@@ -183,9 +183,11 @@ def parse_annotated_script(script: str) -> List[dict]:
         [{text, mood, broll_keywords}, ...]
     """
     paragraphs = [p.strip() for p in script.split('---') if p.strip()]
-    if not paragraphs:
-        paragraphs = [p.strip() for p in script.split('\n\n') if p.strip()]
-    if not paragraphs:
+    if len(paragraphs) <= 1:
+        # 没有 --- 分隔符，尝试用空行分段
+        paragraphs = [p.strip() for p in re.split(r'\n\s*\n', script) if p.strip()]
+    if len(paragraphs) <= 1:
+        # 仍然只有一段，用单换行分段
         paragraphs = [p.strip() for p in script.split('\n') if p.strip()]
 
     result = []
