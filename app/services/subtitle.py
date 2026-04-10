@@ -7,7 +7,13 @@ from typing import Optional
 # from faster_whisper import WhisperModel
 from timeit import default_timer as timer
 from loguru import logger
-import google.generativeai as genai
+try:
+    import google.generativeai as genai
+    GENAI_AVAILABLE = True
+except ImportError:
+    genai = None
+    GENAI_AVAILABLE = False
+    logger.warning("google-generativeai 未安装，Gemini字幕功能不可用")
 from moviepy import VideoFileClip
 import os
 
@@ -460,3 +466,51 @@ if __name__ == "__main__":
     # #
     # # if gemini_subtitle_file:
     # #     print(f"Gemini生成的字幕文件: {gemini_subtitle_file}")
+
+
+def create_srt_from_text(text: str, output_path: str, config: dict = None) -> str:
+    """
+    从文本直接生成SRT字幕文件（不需要whisper模型）
+
+    Args:
+        text: 解说文案文本
+        output_path: 输出SRT文件路径
+        config: 配置字典
+
+    Returns:
+        str: 生成的SRT文件路径
+    """
+    import pysrt
+    import os
+
+    os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
+
+    # Split text into sentences
+    paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
+    if not paragraphs:
+        paragraphs = [text]
+
+    subs = pysrt.SubRipFile()
+    current_time_ms = 0
+
+    for i, para in enumerate(paragraphs):
+        # Estimate reading speed: ~4 chars per second for Chinese
+        chars_per_second = 4.0
+        duration_ms = int(len(para) / chars_per_second * 1000)
+        duration_ms = max(duration_ms, 1000)  # At least 1 second
+
+        start_time = pysrt.SubRipTime(milliseconds=current_time_ms)
+        end_time = pysrt.SubRipTime(milliseconds=current_time_ms + duration_ms)
+
+        sub = pysrt.SubRipItem(
+            index=i + 1,
+            start=start_time,
+            end=end_time,
+            text=para
+        )
+        subs.append(sub)
+        current_time_ms += duration_ms
+
+    subs.save(output_path, encoding='utf-8')
+    logger.info(f"字幕文件已生成: {output_path}, 共 {len(subs)} 条")
+    return output_path
