@@ -1,17 +1,24 @@
 """
-多Agent编排器（Orchestrator）
-协调5个Agent按顺序/并行执行，实现全自动短剧解说视频生产
+多Agent编排器（Orchestrator）v3.0
+协调9个Agent按顺序/并行执行，实现全自动短剧解说视频生产
 
-工作流:
-  MaterialScout → PlotAnalyzer → ScriptWriter → VoiceAgent → VideoEditor
+工作流 (v3.0 9-Agent Pipeline):
+  MaterialScout → PlotAnalyzer → ScriptWriter → VoiceAgent
+    → BrollMatcher → VideoGen → VideoEditor → SEO → Publish
 
 支持:
   - 单条视频生产
   - 批量模式（多条素材并行）
   - 进度回调
+  - B-roll自动匹配（可选）
+  - AI视频生成（可选，Kling/Runway）
+  - SEO优化
+  - 自动发布（可选）
+  - 自我迭代反馈
 """
 
 import uuid
+import json
 import time
 from typing import Any, Callable, Dict, List, Optional
 from pathlib import Path
@@ -23,11 +30,16 @@ from app.agents.plot_analyzer import PlotAnalyzerAgent
 from app.agents.script_writer import ScriptWriterAgent
 from app.agents.voice_agent import VoiceAgent
 from app.agents.video_editor import VideoEditorAgent
+# v3.0 新增 Agents
+from app.agents.video_gen import VideoGenAgent
+from app.agents.broll_matcher import BrollMatcherAgent
+from app.agents.seo_agent import SEOAgent
+from app.agents.publish_agent import PublishAgent
 
 
 class AgentOrchestrator:
     """
-    全自动多Agent编排器
+    全自动多Agent编排器 v3.0
 
     用法:
         orch = AgentOrchestrator(config)
@@ -40,12 +52,23 @@ class AgentOrchestrator:
         self.config = config
         self._progress_callback: Optional[Callable[[str, int, str], None]] = None
 
-        # 初始化所有Agent
+        # 初始化所有Agent (v3.0: 9 Agents)
         self.material_scout = MaterialScoutAgent(config)
         self.plot_analyzer = PlotAnalyzerAgent(config)
         self.script_writer = ScriptWriterAgent(config)
         self.voice_agent = VoiceAgent(config)
         self.video_editor = VideoEditorAgent(config)
+        # v3.0 新增
+        self.video_gen = VideoGenAgent(config)
+        self.broll_matcher = BrollMatcherAgent(config)
+        self.seo_agent = SEOAgent(config)
+        self.publish_agent = PublishAgent(config)
+
+        # 自我迭代数据存储
+        self._iteration_dir = Path(
+            config.get("agents", {}).get("work_dir", "./output/agents")
+        ) / "iterations"
+        self._iteration_dir.mkdir(parents=True, exist_ok=True)
 
     def set_progress_callback(
         self, callback: Callable[[str, int, str], None]
@@ -100,11 +123,11 @@ class AgentOrchestrator:
 
         materials = scout_result.data.get("materials", [])
         self._update_progress(
-            "MaterialScout", 20,
+            "MaterialScout", 10,
             f"找到 {len(materials)} 条素材",
         )
 
-        # ---- Step 2-5: 对每条素材执行完整流水线 ----
+        # ---- Step 2-9: 对每条素材执行完整9-Agent流水线 ----
         for idx, material in enumerate(materials):
             video_result = self._process_single_material(
                 material, idx, len(materials)
@@ -119,19 +142,22 @@ class AgentOrchestrator:
             f"总耗时 {elapsed:.0f}s",
         )
 
+        # Save iteration data for self-improvement
+        self._save_iteration_data(all_results)
+
         return all_results
 
     # ------------------------------------------------------------------
-    # Single material pipeline
+    # Single material pipeline (v3.0: 9 agents)
     # ------------------------------------------------------------------
 
     def _process_single_material(
         self, material: dict, idx: int, total: int
     ) -> Dict[str, Any]:
-        """对单条素材执行完整Agent链"""
+        """对单条素材执行完整9-Agent链"""
         session_id = f"{material.get('video_id', 'vid')}_{uuid.uuid4().hex[:4]}"
         title = material.get("title", "未知短剧")
-        base_pct = int(20 + (idx / max(total, 1)) * 80)
+        base_pct = int(10 + (idx / max(total, 1)) * 90)
 
         result: Dict[str, Any] = {
             "success": False,
@@ -159,7 +185,7 @@ class AgentOrchestrator:
 
         # ---- Agent 3: 文案改写 ----
         self._update_progress(
-            "ScriptWriter", base_pct + 15,
+            "ScriptWriter", base_pct + 8,
             f"[{idx+1}/{total}] 生成文案...",
         )
         script_result = self.script_writer.execute({
@@ -175,7 +201,7 @@ class AgentOrchestrator:
 
         # ---- Agent 4: 配音 ----
         self._update_progress(
-            "VoiceAgent", base_pct + 30,
+            "VoiceAgent", base_pct + 16,
             f"[{idx+1}/{total}] 生成配音...",
         )
         voice_result = self.voice_agent.execute({
@@ -189,9 +215,37 @@ class AgentOrchestrator:
 
         result["audio_path"] = voice_result.data.get("audio_path", "")
 
+        # ---- Agent 7: B-roll匹配（可选，非阻塞） ----
+        self._update_progress(
+            "BrollMatcher", base_pct + 24,
+            f"[{idx+1}/{total}] 匹配B-roll素材...",
+        )
+        broll_result = self.broll_matcher.execute({
+            "script": script,
+            "analysis": analysis,
+            "session_id": session_id,
+        })
+        broll_clips = []
+        if broll_result.success:
+            broll_clips = broll_result.data.get("broll_clips", [])
+
+        # ---- Agent 6: AI视频生成（可选） ----
+        self._update_progress(
+            "VideoGen", base_pct + 32,
+            f"[{idx+1}/{total}] AI视频生成...",
+        )
+        vgen_result = self.video_gen.execute({
+            "script": script,
+            "session_id": session_id,
+            "duration": int(voice_result.data.get("total_duration", 60)),
+        })
+        ai_video_clips = []
+        if vgen_result.success:
+            ai_video_clips = vgen_result.data.get("video_clips", [])
+
         # ---- Agent 5: 视频剪辑 ----
         self._update_progress(
-            "VideoEditor", base_pct + 50,
+            "VideoEditor", base_pct + 40,
             f"[{idx+1}/{total}] 合成视频...",
         )
         video_result = self.video_editor.execute({
@@ -208,12 +262,71 @@ class AgentOrchestrator:
             result["stage"] = "video_editor"
             return result
 
+        video_path = video_result.data.get("video_path", "")
+        result["video_path"] = video_path
+
+        # ---- Agent 8: SEO优化 ----
+        self._update_progress(
+            "SEOAgent", base_pct + 50,
+            f"[{idx+1}/{total}] SEO优化...",
+        )
+        seo_result = self.seo_agent.execute({
+            "title": title,
+            "analysis": analysis,
+            "script": script,
+        })
+        seo_data = {}
+        if seo_result.success:
+            seo_data = seo_result.data.get("seo", {})
+        result["seo"] = seo_data
+        result["metadata"] = seo_data or video_result.data.get("metadata", {})
+
+        # ---- Agent 9: 发布 ----
+        self._update_progress(
+            "PublishAgent", base_pct + 58,
+            f"[{idx+1}/{total}] 准备发布...",
+        )
+        publish_result = self.publish_agent.execute({
+            "video_path": video_path,
+            "seo": seo_data,
+            "session_id": session_id,
+        })
+        if publish_result.success:
+            result["publish"] = publish_result.data
+
         result["success"] = True
-        result["video_path"] = video_result.data.get("video_path", "")
-        result["metadata"] = video_result.data.get("metadata", {})
+        result["broll_clips"] = broll_clips
+        result["ai_video_clips"] = ai_video_clips
 
         self._update_progress(
-            "VideoEditor", base_pct + 60,
+            "Orchestrator", base_pct + 65,
             f"[{idx+1}/{total}] ✅ 完成: {title}",
         )
         return result
+
+    # ------------------------------------------------------------------
+    # Self-iteration feedback
+    # ------------------------------------------------------------------
+
+    def _save_iteration_data(self, results: List[Dict[str, Any]]):
+        """保存迭代数据，供24h后自动反馈优化"""
+        iteration_file = self._iteration_dir / f"iteration_{int(time.time())}.json"
+        data = {
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "total_videos": len(results),
+            "success_count": sum(1 for r in results if r.get("success")),
+            "sessions": [
+                {
+                    "session_id": r.get("session_id", ""),
+                    "title": r.get("title", ""),
+                    "success": r.get("success", False),
+                    "video_path": r.get("video_path", ""),
+                    "seo": r.get("seo", {}),
+                    "error": r.get("error", ""),
+                }
+                for r in results
+            ],
+        }
+        with open(str(iteration_file), "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        logger.info(f"[Orchestrator] 迭代数据已保存: {iteration_file}")

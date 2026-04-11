@@ -1,0 +1,38 @@
+version: '3.9'
+
+services:
+  app:
+    build: .
+    container_name: redditnarratoai-v3
+    ports:
+      - "8501:8501"  # Streamlit
+    volumes:
+      - .:/app
+      - ./output:/app/output
+      - ./config.toml:/app/config.toml
+    environment:
+      - PYTHONPATH=/app
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    # GPU support (requires NVIDIA Docker runtime + GPU hardware)
+    # Remove the 'deploy' block below if running without a GPU
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  ollama_data:

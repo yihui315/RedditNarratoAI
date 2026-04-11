@@ -1,5 +1,5 @@
-# RedditNarratoAI - Reddit帖子转AI影视解说视频
-# 合并 NarratoAI + RedditVideoMakerBot
+# RedditNarratoAI v3.0 - Reddit帖子转AI影视解说视频
+# 合并 NarratoAI + RedditVideoMakerBot + v3.0 9-Agent Pipeline
 
 # 核心依赖
 requests>=2.32.0
