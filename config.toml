@@ -3,7 +3,7 @@
 
 [app]
 name = "RedditNarratoAI"
-version = "3.0.0"
+version = "5.0.0"
 debug = false
 
 [reddit]
@@ -97,3 +97,13 @@ auto_publish = false
 platforms = ["tiktok", "youtube_shorts"]
 tiktok_access_token = ""
 youtube_api_key = ""
+
+[dubbing]
+# v5.0: 高质克隆配音设置
+enabled = true
+gpt_sovits_api = ""          # GPT-SoVITS API地址（如 http://localhost:9880）
+
+[visual_asset]
+# v5.0: 视觉资产生成设置
+minimax_api_key = ""         # MiniMax API Key（文生图）
+vidu_api_key = ""            # Vidu API Key（文生视频，可选）

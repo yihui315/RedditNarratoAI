@@ -1,0 +1,5 @@
+{
+  "sessions": [],
+  "_schema_version": "5.0",
+  "_description": "跨会话记忆持久化 - Orchestrator自动管理，记录用户风格、历史选题、成功率等"
+}

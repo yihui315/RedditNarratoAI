@@ -1,14 +1,21 @@
 """
-多Agent编排器（Orchestrator）v4.0 — 短剧超级操盘手版
-协调14个Agent按顺序/并行执行，实现全自动短剧解说视频生产
+多Agent编排器（Orchestrator）v5.0 — 短剧超级操盘手版
+协调18个Agent按顺序/并行执行，实现全自动短剧内容生产
 
-工作流 (v4.0 14-Agent Pipeline):
-  PersonaMaster → TopicEngine → CompetitorDecode → MaterialScout
-    → PlotAnalyzer → ScriptWriter → ReviewDiagnosis → VoiceAgent
-    → BrollMatcher → VideoGen → VideoEditor → SEO → Publish
+v5.0 双模式:
+  narration（解说模式）:
+    PersonaMaster → TopicEngine → CompetitorDecode → MaterialScout
+      → PlotAnalyzer → ScriptWriter → ReviewDiagnosis → VoiceAgent/DubbingAgent
+      → BrollMatcher → VideoGen → VideoEditor → VisualAsset → SEO → Publish
+
+  drama（原创短剧模式）:
+    PersonaMaster → TopicEngine → ScriptWriter → CharacterGen → StoryboardBreaker
+      → DubbingAgent → VideoGen → VideoEditor → VisualAsset → SEO → Publish
+
   DailyOperator (Supervisor模式，可独立调用)
 
 支持:
+  - 双模式：解说 vs 原创短剧（自动/手动切换）
   - 单条视频生产
   - 批量模式（多条素材并行）
   - 操盘手模式（~daily 一键全流程）
@@ -19,9 +26,13 @@
   - 进度回调
   - B-roll自动匹配（可选）
   - AI视频生成（可选，Kling/Runway）
+  - 角色生成 + 分镜拆解（v5.0）
+  - GPT-SoVITS高质克隆配音（v5.0）
+  - 视觉卡片/封面生成（v5.0）
   - SEO优化
   - 自动发布（可选）
   - 自我迭代反馈
+  - 跨会话记忆持久化（v5.0）
 """
 
 import uuid
@@ -48,16 +59,27 @@ from app.agents.competitor_decode import CompetitorDecodeAgent
 from app.agents.topic_engine import TopicEngineAgent
 from app.agents.review_diagnosis import ReviewDiagnosisAgent
 from app.agents.daily_operator import DailyOperatorAgent
+# v5.0 新增 Agents
+from app.agents.character_gen import CharacterGenAgent
+from app.agents.storyboard_breaker import StoryboardBreakerAgent
+from app.agents.dubbing_agent import DubbingAgent
+from app.agents.visual_asset import VisualAssetAgent
 
 
 class AgentOrchestrator:
     """
-    全自动多Agent编排器 v4.0 — 短剧超级操盘手版
+    全自动多Agent编排器 v5.0 — 短剧超级操盘手版
+
+    双模式:
+        narration: 解说模式（YouTube/Reddit短剧解说）
+        drama: 原创短剧模式（主题→角色→分镜→生成→合成）
 
     用法:
         orch = AgentOrchestrator(config)
-        # 经典模式 (v3兼容)
+        # 解说模式 (v3/v4兼容)
         results = orch.run(keywords="short drama revenge")
+        # 原创短剧模式 (v5.0新增)
+        results = orch.run_drama(theme="复仇短剧 女主被渣男抛弃", episodes=5)
         # 操盘手模式 (v4.0 ~daily)
         plan = orch.run_daily(batch_size=5, topic_mode="hot")
         # 竞品拆解
@@ -87,6 +109,11 @@ class AgentOrchestrator:
         self.topic_engine = TopicEngineAgent(config)
         self.review_diagnosis = ReviewDiagnosisAgent(config)
         self.daily_operator = DailyOperatorAgent(config)
+        # v5.0 新增
+        self.character_gen = CharacterGenAgent(config)
+        self.storyboard_breaker = StoryboardBreakerAgent(config)
+        self.dubbing_agent = DubbingAgent(config)
+        self.visual_asset = VisualAssetAgent(config)
 
         # 自我迭代数据存储
         self._iteration_dir = Path(
@@ -305,6 +332,19 @@ class AgentOrchestrator:
         result["seo"] = seo_data
         result["metadata"] = seo_data or video_result.data.get("metadata", {})
 
+        # ---- Agent v5.0: 视觉资产（封面/卡片） ----
+        self._update_progress(
+            "VisualAsset", base_pct + 54,
+            f"[{idx+1}/{total}] 生成封面/卡片...",
+        )
+        va_result = self.visual_asset.execute({
+            "title": title,
+            "script": script,
+            "session_id": session_id,
+            "styles": ["thumbnail"],
+        })
+        result["visual_assets"] = va_result.data.get("visual_assets", []) if va_result.success else []
+
         # ---- Agent 9: 发布 ----
         self._update_progress(
             "PublishAgent", base_pct + 58,
@@ -472,6 +512,207 @@ class AgentOrchestrator:
         }
 
     # ------------------------------------------------------------------
+    # v5.0: 原创短剧模式入口
+    # ------------------------------------------------------------------
+
+    def run_drama(
+        self,
+        theme: str,
+        episodes: int = 1,
+        user_input: str = "",
+    ) -> List[Dict[str, Any]]:
+        """
+        原创短剧模式 (v5.0) — 从主题到成品视频全链路
+
+        流程: PersonaMaster → ScriptWriter → CharacterGen → StoryboardBreaker
+              → DubbingAgent → VideoGen → VideoEditor → VisualAsset → SEO → Publish
+
+        Args:
+            theme: 主题描述（如 "复仇短剧 女主被渣男抛弃"）
+            episodes: 生成集数（默认1）
+            user_input: 用户画像输入
+        """
+        start = time.time()
+        all_results: List[Dict[str, Any]] = []
+
+        # Phase 1: 加载画像
+        self._update_progress("PersonaMaster", 0, "加载创作者画像...")
+        persona_result = self.persona_master.execute({"user_input": user_input})
+        persona = persona_result.data.get("persona", {}) if persona_result.success else {}
+
+        for ep in range(episodes):
+            ep_result = self._process_drama_episode(theme, ep, episodes, persona)
+            all_results.append(ep_result)
+
+        elapsed = time.time() - start
+        success_count = sum(1 for r in all_results if r.get("success"))
+        self._update_progress(
+            "Orchestrator", 100,
+            f"原创短剧完成！成功 {success_count}/{len(all_results)} 集，"
+            f"总耗时 {elapsed:.0f}s",
+        )
+
+        self._save_iteration_data(all_results)
+        self._save_memory({"mode": "drama", "theme": theme, "results": len(all_results)})
+
+        return all_results
+
+    def _process_drama_episode(
+        self, theme: str, ep_idx: int, total_eps: int, persona: dict
+    ) -> Dict[str, Any]:
+        """处理原创短剧单集"""
+        session_id = f"drama_{uuid.uuid4().hex[:6]}_ep{ep_idx + 1}"
+        base_pct = int((ep_idx / max(total_eps, 1)) * 100)
+        result: Dict[str, Any] = {
+            "success": False,
+            "session_id": session_id,
+            "title": f"{theme} (第{ep_idx + 1}集)",
+            "mode": "drama",
+        }
+
+        # Step 1: 生成剧本
+        self._update_progress(
+            "ScriptWriter", base_pct + 5,
+            f"[{ep_idx+1}/{total_eps}] 创作剧本...",
+        )
+        script_result = self.script_writer.execute({
+            "analysis": {
+                "title": theme,
+                "summary": theme,
+                "genre": "原创短剧",
+                "characters": [],
+                "conflicts": [{"description": theme, "intensity": "高"}],
+                "reversals": [],
+                "emotional_peaks": [],
+                "hook_points": [],
+            },
+        })
+        if not script_result.success:
+            result["error"] = f"剧本生成失败: {script_result.error}"
+            result["stage"] = "script_writer"
+            return result
+        script = script_result.data.get("script", "")
+        result["script"] = script
+
+        # Step 2: 角色生成
+        self._update_progress(
+            "CharacterGen", base_pct + 15,
+            f"[{ep_idx+1}/{total_eps}] 生成角色...",
+        )
+        char_result = self.character_gen.execute({
+            "theme": theme,
+            "script": script,
+        })
+        characters = char_result.data.get("characters", []) if char_result.success else []
+        result["characters"] = characters
+
+        # Step 3: 分镜拆解
+        self._update_progress(
+            "StoryboardBreaker", base_pct + 25,
+            f"[{ep_idx+1}/{total_eps}] 拆解分镜...",
+        )
+        sb_result = self.storyboard_breaker.execute({
+            "script": script,
+            "characters": characters,
+        })
+        storyboard = sb_result.data.get("storyboard", []) if sb_result.success else []
+        result["storyboard"] = storyboard
+
+        # Step 4: 高质配音
+        self._update_progress(
+            "DubbingAgent", base_pct + 35,
+            f"[{ep_idx+1}/{total_eps}] 角色配音...",
+        )
+        dub_result = self.dubbing_agent.execute({
+            "script": script,
+            "characters": characters,
+            "session_id": session_id,
+        })
+        dubbed_audio = dub_result.data.get("dubbed_audio", "") if dub_result.success else ""
+        result["dubbed_audio"] = dubbed_audio
+
+        # Step 5: AI视频生成
+        self._update_progress(
+            "VideoGen", base_pct + 45,
+            f"[{ep_idx+1}/{total_eps}] AI视频生成...",
+        )
+        vgen_result = self.video_gen.execute({
+            "script": script,
+            "session_id": session_id,
+            "duration": 60,
+        })
+        ai_video_clips = vgen_result.data.get("video_clips", []) if vgen_result.success else []
+
+        # Step 6: 视频合成
+        self._update_progress(
+            "VideoEditor", base_pct + 55,
+            f"[{ep_idx+1}/{total_eps}] 合成视频...",
+        )
+        video_result = self.video_editor.execute({
+            "script": script,
+            "audio_path": dubbed_audio,
+            "durations": [],
+            "source_video_path": "",
+            "session_id": session_id,
+            "title": f"{theme} (第{ep_idx + 1}集)",
+            "analysis": {"title": theme, "genre": "原创短剧"},
+        })
+        if not video_result.success:
+            result["error"] = f"视频合成失败: {video_result.error}"
+            result["stage"] = "video_editor"
+            return result
+        video_path = video_result.data.get("video_path", "")
+        result["video_path"] = video_path
+
+        # Step 7: 视觉资产（封面/卡片）
+        self._update_progress(
+            "VisualAsset", base_pct + 65,
+            f"[{ep_idx+1}/{total_eps}] 生成封面...",
+        )
+        va_result = self.visual_asset.execute({
+            "title": f"{theme} (第{ep_idx + 1}集)",
+            "script": script,
+            "session_id": session_id,
+            "styles": ["thumbnail", "tiktok_cover"],
+        })
+        result["visual_assets"] = va_result.data.get("visual_assets", []) if va_result.success else []
+
+        # Step 8: SEO优化
+        self._update_progress(
+            "SEOAgent", base_pct + 75,
+            f"[{ep_idx+1}/{total_eps}] SEO优化...",
+        )
+        seo_result = self.seo_agent.execute({
+            "title": f"{theme} (第{ep_idx + 1}集)",
+            "analysis": {"title": theme, "genre": "原创短剧"},
+            "script": script,
+        })
+        seo_data = seo_result.data.get("seo", {}) if seo_result.success else {}
+        result["seo"] = seo_data
+
+        # Step 9: 发布
+        self._update_progress(
+            "PublishAgent", base_pct + 85,
+            f"[{ep_idx+1}/{total_eps}] 准备发布...",
+        )
+        pub_result = self.publish_agent.execute({
+            "video_path": video_path,
+            "seo": seo_data,
+            "session_id": session_id,
+        })
+        if pub_result.success:
+            result["publish"] = pub_result.data
+
+        result["success"] = True
+        result["ai_video_clips"] = ai_video_clips
+
+        self._update_progress(
+            "Orchestrator", base_pct + 95,
+            f"[{ep_idx+1}/{total_eps}] ✅ 原创短剧完成!",
+        )
+        return result
+
+    # ------------------------------------------------------------------
     # Self-iteration feedback
     # ------------------------------------------------------------------
 
@@ -497,3 +738,33 @@ class AgentOrchestrator:
         with open(str(iteration_file), "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         logger.info(f"[Orchestrator] 迭代数据已保存: {iteration_file}")
+
+    # ------------------------------------------------------------------
+    # v5.0: 跨会话记忆持久化
+    # ------------------------------------------------------------------
+
+    def _save_memory(self, session_data: Dict[str, Any]):
+        """保存跨会话记忆数据（Toonflow记忆层）"""
+        memory_path = Path(self.config.get("app", {}).get("root_dir", ".")) / "config" / "memory.json"
+        memory_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # 加载已有记忆
+        memories: List[Dict] = []
+        if memory_path.exists():
+            try:
+                with open(str(memory_path), "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    memories = data.get("sessions", [])
+            except (json.JSONDecodeError, KeyError):
+                memories = []
+
+        # 追加新记忆（保留最近100条）
+        memories.append({
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            **session_data,
+        })
+        memories = memories[-100:]
+
+        with open(str(memory_path), "w", encoding="utf-8") as f:
+            json.dump({"sessions": memories}, f, ensure_ascii=False, indent=2)
+        logger.info(f"[Orchestrator] 记忆已更新: {memory_path}")

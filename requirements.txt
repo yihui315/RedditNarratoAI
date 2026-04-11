@@ -1,5 +1,5 @@
-# RedditNarratoAI v3.0 - Reddit帖子转AI影视解说视频
-# 合并 NarratoAI + RedditVideoMakerBot + v3.0 9-Agent Pipeline
+# RedditNarratoAI v5.0 - 短剧超级操盘手
+# 解说模式 + 原创短剧模式 → 18-Agent全自动生产 → 多平台发布
 
 # 核心依赖
 requests>=2.32.0
@@ -38,6 +38,10 @@ translators>=5.9.9
 # faster-whisper>=1.0.1
 # opencv-python>=4.11.0.86
 # pyJianYingDraft>=0.1.0
+
+# 可选:GPT-SoVITS高质配音 (v5.0)
+# whisperx>=3.1.1
+# gradio_client>=0.7.0
 
 # YouTube素材下载 (Agent模式)
 yt-dlp>=2026.2.21
