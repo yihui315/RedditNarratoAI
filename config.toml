@@ -3,7 +3,7 @@
 
 [app]
 name = "RedditNarratoAI"
-version = "0.2.0"
+version = "3.0.0"
 debug = false
 
 [reddit]
@@ -73,3 +73,22 @@ subtitle_language = "zh"  # 优先下载的字幕语言
 # 多Agent系统设置
 work_dir = "./output/agents"  # Agent工作目录
 max_retries = 3               # 单个Agent最大重试次数
+
+[video_gen]
+# AI视频生成设置 (v3.0)
+mode = "moviepy"              # moviepy (本地免费) / kling / runway
+kling_api_key = ""            # Kling AI API Key
+runway_api_key = ""           # Runway API Key
+
+[pexels]
+# B-roll素材下载设置 (v3.0)
+api_key = ""                  # Pexels API Key
+max_clips = 5
+clip_duration = 10
+
+[publish]
+# 自动发布设置 (v3.0)
+auto_publish = false
+platforms = ["tiktok", "youtube_shorts"]
+tiktok_access_token = ""
+youtube_api_key = ""

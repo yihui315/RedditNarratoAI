@@ -1,6 +1,7 @@
 """
-RedditNarratoAI Web界面
+RedditNarratoAI v3.0 Web界面
 Reddit帖子 / YouTube短剧 → AI影视解说视频
+支持: 9-Agent Pipeline / B-roll / AI视频生成 / SEO / 自动发布
 """
 
 import streamlit as st
@@ -17,14 +18,14 @@ from app.config import config
 from app.pipeline import RedditVideoPipeline, run_pipeline
 
 st.set_page_config(
-    page_title="RedditNarratoAI",
-    page_icon="🎬",
+    page_title="RedditNarratoAI v3.0",
+    page_icon="🚀",
     layout="wide"
 )
 
 # 标题
-st.title("🎬 RedditNarratoAI")
-st.markdown("**Reddit帖子 / YouTube短剧 → AI文案改写 → 带字幕配音的影视视频**")
+st.title("🚀 RedditNarratoAI v3.0")
+st.markdown("**Reddit帖子 / YouTube短剧 → AI文案改写 → 9-Agent全自动生产 → 多平台发布**")
 
 # 侧边栏配置
 with st.sidebar:
@@ -94,8 +95,31 @@ with st.sidebar:
         "app": app_config.get("app", {"output_dir": "./output"}),
     }
 
+    # v3.0: 视频生成配置
+    st.subheader("🎥 v3.0 视频生成")
+    video_gen_mode = st.selectbox(
+        "视频生成模式",
+        ["moviepy", "kling", "runway"],
+        index=0,
+        help="moviepy=本地合成(免费), kling/runway=AI生成(需API Key)"
+    )
+    full_config["video_gen"] = {"mode": video_gen_mode}
+
+    # v3.0: 发布配置
+    st.subheader("📤 自动发布")
+    auto_publish = st.checkbox("启用自动发布", value=False)
+    publish_platforms = st.multiselect(
+        "发布平台",
+        ["tiktok", "youtube_shorts", "instagram_reels"],
+        default=[]
+    )
+    full_config["publish"] = {
+        "auto_publish": auto_publish,
+        "platforms": publish_platforms,
+    }
+
 # 主界面 - Tab切换
-tab_reddit, tab_agent = st.tabs(["📰 Reddit 模式", "🎬 短剧解说 (Agent)"])
+tab_reddit, tab_agent = st.tabs(["📰 Reddit 模式", "🎬 短剧解说 (9-Agent v3.0)"])
 
 # ==================== Reddit模式 ====================
 with tab_reddit:
@@ -179,8 +203,10 @@ with tab_reddit:
 
 # ==================== Agent短剧解说模式 ====================
 with tab_agent:
-    st.subheader("YouTube短剧自动解说")
-    st.markdown("搜索YouTube短剧 → AI剧情分析 → 爆款文案 → 配音 → 视频合成")
+    st.subheader("YouTube短剧自动解说 (v3.0 9-Agent Pipeline)")
+    st.markdown("""
+    🔥 **v3.0新功能**: 搜索YouTube短剧 → AI剧情分析 → 爆款文案 → 配音 → B-roll匹配 → AI视频生成 → 视频合成 → SEO优化 → 自动发布
+    """)
 
     input_mode = st.radio("输入方式", ["🔍 关键词搜索", "🔗 直接输入URL"], horizontal=True)
 
@@ -248,6 +274,27 @@ with tab_agent:
                                 )
                         if res.get("script"):
                             st.text_area("文案", value=res["script"], height=150, disabled=True, key=f"script_{i}")
+
+                        # v3.0: SEO数据展示
+                        seo = res.get("seo", {})
+                        if seo:
+                            st.markdown("**🔍 SEO优化**")
+                            if seo.get("seo_title"):
+                                st.info(f"📝 优化标题: {seo['seo_title']}")
+                            if seo.get("tags"):
+                                st.write("🏷️ 标签: " + ", ".join(seo["tags"][:10]))
+                            if seo.get("hashtags"):
+                                st.write("# 话题: " + " ".join(seo["hashtags"][:8]))
+
+                        # v3.0: 发布状态
+                        publish = res.get("publish", {})
+                        if publish:
+                            st.markdown("**📤 发布状态**")
+                            if publish.get("auto_publish"):
+                                st.write(f"自动发布: {publish.get('success_count', 0)}/{publish.get('total_platforms', 0)} 平台")
+                            else:
+                                st.write("📦 发布包已准备，可手动上传")
+
                         if res.get("metadata"):
                             st.json(res["metadata"])
                     else:
@@ -271,21 +318,27 @@ with st.expander("📖 使用说明"):
     3. 选择故事模式（推荐）
     4. 点击开始生成
 
-    #### 🎬 Agent 短剧解说模式
+    #### 🎬 Agent 短剧解说模式 (v3.0 9-Agent Pipeline)
     自动搜索YouTube短剧并生成解说视频：
     1. 输入搜索关键词或直接粘贴YouTube链接
-    2. 系统自动：搜索 → 下载字幕 → AI分析剧情 → 生成爆款文案 → TTS配音 → 合成视频
+    2. 系统自动执行9个Agent:
+       - MaterialScout → PlotAnalyzer → ScriptWriter → VoiceAgent
+       - → BrollMatcher → VideoGen → VideoEditor → SEO → Publish
     3. 支持批量处理多条视频
+    4. 可选: B-roll自动匹配（需Pexels API Key）
+    5. 可选: AI视频生成（需Kling/Runway API Key）
+    6. 可选: 自动发布到TikTok/YouTube/Instagram
 
     ### 配置要求
     - **LLM**: Ollama本地运行（推荐）或OpenAI/DeepSeek API
     - **TTS**: 默认使用Edge TTS（免费，无需配置）
     - **视频**: 需安装FFmpeg
+    - **Docker部署**: `docker compose up -d --build`
     """)
 
 # 底部信息
 st.markdown("---")
 st.markdown(
-    "<center>RedditNarratoAI v0.2.0 | Reddit + YouTube → AI解说视频</center>",
+    "<center>RedditNarratoAI v3.0 | 9-Agent Pipeline | Reddit + YouTube → AI解说视频 → 多平台发布</center>",
     unsafe_allow_html=True
 )
