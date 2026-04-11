@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 import praw
 from praw.models import MoreComments
+from loguru import logger
 
 
 @dataclass
@@ -57,7 +58,7 @@ class RedditFetcher:
             self.reddit.user.me()
             return True
         except Exception as e:
-            print(f"Reddit连接失败: {e}")
+            logger.error(f"Reddit连接失败: {e}")
             return False
     
     def fetch_by_url(self, url: str) -> Optional[RedditContent]:
@@ -78,14 +79,14 @@ class RedditFetcher:
         # 解析URL/ID
         post_id = self._extract_post_id(url)
         if not post_id:
-            print(f"无法解析Post ID from: {url}")
+            logger.warning(f"无法解析Post ID from: {url}")
             return None
         
         try:
             submission = self.reddit.submission(id=post_id)
             return self._parse_submission(submission)
         except Exception as e:
-            print(f"获取帖子失败: {e}")
+            logger.error(f"获取帖子失败: {e}")
             return None
     
     def fetch_by_subreddit(
@@ -129,7 +130,7 @@ class RedditFetcher:
                 })
             return results
         except Exception as e:
-            print(f"获取Subreddit失败: {e}")
+            logger.error(f"获取Subreddit失败: {e}")
             return []
     
     def _extract_post_id(self, url_or_id: str) -> Optional[str]:

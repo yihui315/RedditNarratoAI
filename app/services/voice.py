@@ -2296,11 +2296,25 @@ def generate_voice(text: str, output_dir: str, config: dict = None) -> Tuple[str
     voice_rate = tts_config.get("rate", "+0%")
     voice_pitch = tts_config.get("pitch", "+0Hz")
 
-    # Convert rate/pitch strings to floats if needed
+    # Parse rate/pitch strings (e.g. "+50%", "-20%") to float multipliers
+    # e.g. "+0%" → 1.0, "+50%" → 1.5, "-20%" → 0.8
+    def _parse_rate_string(s):
+        """Parse '+50%' to 1.5 or '+0%' to 1.0"""
+        if isinstance(s, (int, float)):
+            return float(s)
+        s = str(s).strip()
+        try:
+            # Remove % suffix if present
+            cleaned = s.replace('%', '').replace('Hz', '')
+            pct = float(cleaned)
+            return 1.0 + pct / 100.0
+        except (ValueError, TypeError):
+            return 1.0
+
     if isinstance(voice_rate, str):
-        voice_rate = 1.0
+        voice_rate = _parse_rate_string(voice_rate)
     if isinstance(voice_pitch, str):
-        voice_pitch = 1.0
+        voice_pitch = _parse_rate_string(voice_pitch)
 
     # Split text into paragraphs
     paragraphs = [p.strip() for p in text.split('\n') if p.strip()]

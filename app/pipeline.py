@@ -13,7 +13,7 @@ from loguru import logger
 
 from app.config import config
 from app.services.reddit import RedditFetcher, RedditContent
-from app.services.llm import generate_script
+from app.services.llm import generate_script_simple
 from app.services.voice import generate_voice
 from app.services.subtitle import create_srt_from_text
 
@@ -199,9 +199,9 @@ class RedditVideoPipeline:
 """
         
         try:
-            script = generate_script(
+            script = generate_script_simple(
                 prompt=prompt,
-                config=self.config,
+                config_dict=self.config,
                 system_prompt="你是一个专业的影视解说博主，擅长将网络内容改写成吸引人的短视频文案。"
             )
             return script.strip()
@@ -246,13 +246,16 @@ class RedditVideoPipeline:
             return "", []
     
     def _generate_subtitle(self, script: str, segments: list, session_id: str) -> str:
-        """生成字幕文件"""
+        """生成字幕文件，使用TTS的实际时长精确对齐"""
         try:
             subtitle_path = str(self.output_dir / session_id / "subtitle.srt")
+            # Extract durations from segments for precise timing
+            durations = [seg.end_time - seg.start_time for seg in segments] if segments else None
             create_srt_from_text(
                 text=script,
                 output_path=subtitle_path,
-                config=self.config
+                config=self.config,
+                durations=durations,
             )
             return subtitle_path
         except Exception as e:
