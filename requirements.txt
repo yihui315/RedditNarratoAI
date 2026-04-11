@@ -39,5 +39,8 @@ translators>=5.9.9
 # opencv-python>=4.11.0.86
 # pyJianYingDraft>=0.1.0
 
+# YouTube素材下载 (Agent模式)
+yt-dlp>=2026.2.21
+
 # 开发依赖
 pytest>=7.0.0

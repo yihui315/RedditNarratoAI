@@ -54,3 +54,15 @@ image_dir = "./resource/images"
 # 资源目录
 ffmpeg = "ffmpeg"  # 或完整路径
 fonts_dir = "./fonts"
+
+[youtube]
+# YouTube素材搜索设置 (Agent模式)
+max_results = 5       # 每次搜索最多返回几条
+min_views = 500000    # 最低播放量筛选
+search_period = "7d"  # 搜索最近多久的视频
+subtitle_language = "zh"  # 优先下载的字幕语言
+
+[agents]
+# 多Agent系统设置
+work_dir = "./output/agents"  # Agent工作目录
+max_retries = 3               # 单个Agent最大重试次数
