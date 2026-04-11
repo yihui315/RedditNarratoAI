@@ -3,7 +3,7 @@ version: '3.9'
 services:
   app:
     build: .
-    container_name: redditnarratoai-v3
+    container_name: redditnarratoai-v5
     ports:
       - "8501:8501"  # Streamlit
     volumes:
@@ -13,6 +13,10 @@ services:
     environment:
       - PYTHONPATH=/app
       - OLLAMA_HOST=http://ollama:11434
+      # v5.0 可选API Keys (也可在config.toml中配置)
+      # - GPT_SOVITS_API=http://gpt-sovits:9880
+      # - MINIMAX_API_KEY=
+      # - VIDU_API_KEY=
     depends_on:
       - ollama
     restart: unless-stopped

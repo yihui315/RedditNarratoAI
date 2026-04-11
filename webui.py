@@ -1,7 +1,7 @@
 """
-RedditNarratoAI v4.0 Web界面 — 短剧超级操盘手版
-Reddit帖子 / YouTube短剧 → AI影视解说视频
-支持: 14-Agent Pipeline / 操盘手模式 / 竞品拆解 / 智能选题 / 爆款评分
+RedditNarratoAI v5.0 Web界面 — 短剧超级操盘手版
+双模式: 解说模式 + 原创短剧模式
+18-Agent Pipeline / 操盘手模式 / 竞品拆解 / 智能选题 / 爆款评分
 """
 
 import streamlit as st
@@ -18,14 +18,14 @@ from app.config import config
 from app.pipeline import RedditVideoPipeline, run_pipeline
 
 st.set_page_config(
-    page_title="RedditNarratoAI v4.0 - 短剧超级操盘手",
+    page_title="RedditNarratoAI v5.0 - 短剧超级操盘手",
     page_icon="🚀",
     layout="wide"
 )
 
 # 标题
-st.title("🚀 RedditNarratoAI v4.0 — 短剧超级操盘手")
-st.markdown("**Reddit帖子 / YouTube短剧 → AI文案改写 → 14-Agent全自动生产 → 多平台发布**")
+st.title("🚀 RedditNarratoAI v5.0 — 短剧超级操盘手")
+st.markdown("**双模式**: 解说模式 + 原创短剧模式 → 18-Agent全自动生产 → 多平台发布")
 
 # 侧边栏配置
 with st.sidebar:
@@ -96,7 +96,7 @@ with st.sidebar:
     }
 
     # v3.0: 视频生成配置
-    st.subheader("🎥 v3.0 视频生成")
+    st.subheader("🎥 视频生成")
     video_gen_mode = st.selectbox(
         "视频生成模式",
         ["moviepy", "kling", "runway"],
@@ -104,6 +104,18 @@ with st.sidebar:
         help="moviepy=本地合成(免费), kling/runway=AI生成(需API Key)"
     )
     full_config["video_gen"] = {"mode": video_gen_mode}
+
+    # v5.0: 高质配音配置
+    st.subheader("🎙️ v5.0 高质配音")
+    gpt_sovits_api = st.text_input(
+        "GPT-SoVITS API",
+        value=app_config.get("dubbing", {}).get("gpt_sovits_api", ""),
+        help="留空则使用标准Edge TTS（免费）",
+    )
+    full_config["dubbing"] = {
+        "enabled": True,
+        "gpt_sovits_api": gpt_sovits_api,
+    }
 
     # v3.0: 发布配置
     st.subheader("📤 自动发布")
@@ -118,10 +130,10 @@ with st.sidebar:
         "platforms": publish_platforms,
     }
 
-# 主界面 - Tab切换 (v4.0: 5个Tab)
-tab_daily, tab_decode, tab_reddit, tab_agent, tab_review = st.tabs([
-    "🎯 操盘手模式", "🔍 竞品拆解", "📰 Reddit 模式",
-    "🎬 短剧解说 (14-Agent v4.0)", "📊 质量诊断"
+# 主界面 - Tab切换 (v5.0: 6个Tab)
+tab_daily, tab_drama, tab_decode, tab_reddit, tab_agent, tab_review = st.tabs([
+    "🎯 操盘手模式", "🎬 原创短剧 (v5.0)", "🔍 竞品拆解", "📰 Reddit 模式",
+    "🎬 短剧解说 (18-Agent v5.0)", "📊 质量诊断"
 ])
 
 # ==================== 操盘手模式 (v4.0) ====================
@@ -231,6 +243,121 @@ with tab_daily:
 
         except Exception as e:
             daily_status.error(f"错误: {e}")
+            import traceback
+            st.code(traceback.format_exc())
+
+# ==================== 原创短剧模式 (v5.0) ====================
+with tab_drama:
+    st.subheader("原创短剧生成 — 一句话主题 → 全自动短剧制作")
+    st.markdown("""
+    🔥 **v5.0核心功能**: 输入主题/小说片段 → 自动角色生成 → 分镜拆解 → 高质配音 → AI视频 → 成品
+    """)
+
+    drama_theme = st.text_area(
+        "一句话输入（主题/小说片段/灵感描述）",
+        placeholder="例如：复仇短剧 女主被渣男抛弃后逆袭成为女总裁\n或：深夜加班的程序员发现公司AI系统有了自我意识",
+        height=100,
+        key="drama_theme",
+    )
+
+    col_dr1, col_dr2 = st.columns([1, 1])
+    with col_dr1:
+        drama_episodes = st.number_input("生成集数", min_value=1, max_value=10, value=1, key="drama_eps")
+    with col_dr2:
+        drama_user_input = st.text_input(
+            "创作者定位（可选）",
+            placeholder="悬疑风格、犀利吐槽...",
+            key="drama_persona",
+        )
+
+    drama_btn = st.button(
+        "🎬 开始生成原创短剧",
+        type="primary",
+        use_container_width=True,
+        key="drama_btn",
+    )
+
+    drama_status = st.empty()
+    drama_progress = st.progress(0)
+
+    if drama_btn and drama_theme:
+        try:
+            from app.agents.orchestrator import AgentOrchestrator
+
+            drama_status.info("启动原创短剧模式...")
+            orch = AgentOrchestrator(full_config)
+            orch.set_progress_callback(
+                lambda a, p, m: (
+                    drama_progress.progress(min(p, 100) / 100.0),
+                    drama_status.info(f"[{a}] {m}"),
+                )
+            )
+
+            results = orch.run_drama(
+                theme=drama_theme,
+                episodes=drama_episodes,
+                user_input=drama_user_input,
+            )
+
+            success_count = sum(1 for r in results if r.get("success"))
+            if success_count > 0:
+                drama_status.success(f"🎉 完成！成功 {success_count}/{len(results)} 集")
+                st.balloons()
+            else:
+                drama_status.error("所有集数生成失败")
+
+            for i, res in enumerate(results):
+                with st.expander(
+                    f"{'✅' if res.get('success') else '❌'} 第{i+1}集: {res.get('title', '未知')}",
+                    expanded=res.get("success", False),
+                ):
+                    if res.get("success"):
+                        video_path = res.get("video_path", "")
+                        if video_path and os.path.exists(video_path):
+                            st.video(video_path)
+                            with open(video_path, "rb") as f:
+                                st.download_button(
+                                    f"📥 下载视频 第{i+1}集",
+                                    f,
+                                    file_name=Path(video_path).name,
+                                    mime="video/mp4",
+                                    key=f"drama_dl_{i}",
+                                )
+
+                        if res.get("script"):
+                            st.text_area(
+                                "剧本", value=res["script"], height=150,
+                                disabled=True, key=f"drama_script_{i}",
+                            )
+
+                        if res.get("characters"):
+                            st.markdown("**🎭 角色**")
+                            for ch in res["characters"]:
+                                st.markdown(
+                                    f"- **{ch.get('name', '?')}** ({ch.get('role', '')}): "
+                                    f"{ch.get('personality', '')}"
+                                )
+
+                        if res.get("visual_assets"):
+                            st.markdown("**🖼️ 视觉资产**")
+                            for va in res["visual_assets"]:
+                                va_path = va.get("path", "")
+                                if va_path and os.path.exists(va_path):
+                                    st.image(va_path, caption=va.get("style", ""), width=300)
+
+                        seo = res.get("seo", {})
+                        if seo:
+                            st.markdown("**🔍 SEO**")
+                            if seo.get("seo_title"):
+                                st.info(f"📝 {seo['seo_title']}")
+                            if seo.get("tags"):
+                                st.write("🏷️ " + ", ".join(seo["tags"][:10]))
+                    else:
+                        st.error(f"失败阶段: {res.get('stage', '未知')}")
+                        st.error(f"错误: {res.get('error', '未知错误')}")
+
+        except Exception as e:
+            drama_status.error(f"错误: {e}")
             import traceback
             st.code(traceback.format_exc())
 
@@ -412,9 +539,9 @@ with tab_reddit:
 
 # ==================== Agent短剧解说模式 ====================
 with tab_agent:
-    st.subheader("YouTube短剧自动解说 (v4.0 14-Agent Pipeline)")
+    st.subheader("YouTube短剧自动解说 (v5.0 18-Agent Pipeline)")
     st.markdown("""
-    🔥 **v4.0**: 画像 → 选题 → 拆解 → 搜索 → 分析 → 文案 → 评分 → 配音 → B-roll → AI视频 → 剪辑 → SEO → 发布 + 操盘手Supervisor
+    🔥 **v5.0**: 画像 → 选题 → 拆解 → 搜索 → 分析 → 文案 → 评分 → 配音 → B-roll → AI视频 → 剪辑 → 封面 → SEO → 发布 + 操盘手Supervisor
     """)
 
     input_mode = st.radio("输入方式", ["🔍 关键词搜索", "🔗 直接输入URL"], horizontal=True)
@@ -597,13 +724,18 @@ with tab_review:
 # 使用说明
 with st.expander("📖 使用说明"):
     st.markdown("""
-    ### v4.0 五大模式
+    ### v5.0 六大模式
 
     #### 🎯 操盘手模式 (~daily)
     一键启动全流程：自动选题 → 批量文案 → 爆款评分 → 内容日历
     - 支持自然语言输入（大白话描述需求）
     - 4种选题模式：热门/挖掘/竞品/热点
     - 全自动或人工确认两种模式
+
+    #### 🎬 原创短剧 (v5.0新增)
+    一句话主题 → 角色生成 → 分镜拆解 → 高质配音 → AI视频 → 成品
+    - 支持GPT-SoVITS角色克隆配音
+    - 自动生成封面/卡片
 
     #### 🔍 竞品拆解 (~decode)
     粘贴竞品文案，自动拆解：
@@ -615,12 +747,13 @@ with st.expander("📖 使用说明"):
     #### 📰 Reddit 模式
     将Reddit帖子（AskReddit等）转为AI解说视频
 
-    #### 🎬 Agent 短剧解说模式 (v4.0 14-Agent Pipeline)
+    #### 🎬 Agent 短剧解说模式 (v5.0 18-Agent Pipeline)
     自动搜索YouTube短剧并生成解说视频：
     1. PersonaMaster → TopicEngine → CompetitorDecode → MaterialScout
-    2. PlotAnalyzer → ScriptWriter → ReviewDiagnosis → VoiceAgent
-    3. BrollMatcher → VideoGen → VideoEditor → SEO → Publish
-    4. + DailyOperator 操盘手Supervisor
+    2. PlotAnalyzer → ScriptWriter → ReviewDiagnosis → VoiceAgent/DubbingAgent
+    3. BrollMatcher → VideoGen → VideoEditor → VisualAsset → SEO → Publish
+    4. + CharacterGen + StoryboardBreaker (原创短剧模式)
+    5. + DailyOperator 操盘手Supervisor
 
     #### 📊 质量诊断 (~review)
     5维度爆款评分：钩子强度/情绪曲线/节奏时长/算法友好/转化路径
@@ -628,6 +761,7 @@ with st.expander("📖 使用说明"):
     ### 配置要求
     - **LLM**: Ollama本地运行（推荐）或OpenAI/DeepSeek API
     - **TTS**: 默认使用Edge TTS（免费，无需配置）
+    - **高质配音**: GPT-SoVITS API（可选，角色级克隆）
     - **视频**: 需安装FFmpeg
     - **Docker部署**: `docker compose up -d --build`
     """)
@@ -635,6 +769,6 @@ with st.expander("📖 使用说明"):
 # 底部信息
 st.markdown("---")
 st.markdown(
-    "<center>RedditNarratoAI v4.0 | 14-Agent Pipeline | 短剧超级操盘手 | Reddit + YouTube → AI解说视频 → 多平台发布</center>",
+    "<center>RedditNarratoAI v5.0 | 18-Agent Pipeline | 短剧超级操盘手 | 解说+原创双模式 → 多平台发布</center>",
     unsafe_allow_html=True
 )
