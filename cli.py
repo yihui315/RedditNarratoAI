@@ -159,6 +159,7 @@ def cmd_config_check(args):
         ("pydub", "pydub"),
         ("openai", "openai"),
         ("toml", "toml"),
+        ("tomli", "tomli"),
         ("streamlit", "streamlit"),
         ("praw", "praw"),
     ]:
