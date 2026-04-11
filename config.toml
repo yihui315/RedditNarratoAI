@@ -68,6 +68,11 @@ max_results = 5       # 每次搜索最多返回几条
 min_views = 500000    # 最低播放量筛选
 search_period = "7d"  # 搜索最近多久的视频
 subtitle_language = "zh"  # 优先下载的字幕语言
+# Cookie设置 (解决YouTube反爬 "Sign in to confirm you're not a bot" 问题)
+cookies_from_browser = ""  # 从浏览器导入Cookie: chrome / edge / firefox / safari（留空则不使用）
+cookies_file = ""          # 手动Cookie文件路径 (Netscape格式)，优先级高于 cookies_from_browser
+# 代理设置
+proxy = ""                 # HTTP/SOCKS代理，例如 "http://127.0.0.1:7890" 或 "socks5://127.0.0.1:1080"
 
 [agents]
 # 多Agent系统设置

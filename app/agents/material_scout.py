@@ -41,9 +41,31 @@ class MaterialScoutAgent(BaseAgent):
         self.search_period = yt_cfg.get("search_period", "7d")
         self.language = yt_cfg.get("subtitle_language", "zh")
 
+        # Cookie / 代理设置 (解决YouTube反爬)
+        self.cookies_file = yt_cfg.get("cookies_file", "")
+        self.cookies_from_browser = yt_cfg.get("cookies_from_browser", "")
+        self.proxy = yt_cfg.get("proxy", "")
+
     # ------------------------------------------------------------------
     # Core
     # ------------------------------------------------------------------
+
+    def _build_ytdlp_auth_args(self) -> List[str]:
+        """Build common yt-dlp args for cookie authentication and proxy."""
+        args: List[str] = []
+        # cookies_file takes precedence over cookies_from_browser
+        if self.cookies_file:
+            args.extend(["--cookies", self.cookies_file])
+            logger.debug(f"[MaterialScout] 使用Cookie文件: {self.cookies_file}")
+        elif self.cookies_from_browser:
+            args.extend(["--cookies-from-browser", self.cookies_from_browser])
+            logger.debug(
+                f"[MaterialScout] 从浏览器导入Cookie: {self.cookies_from_browser}"
+            )
+        if self.proxy:
+            args.extend(["--proxy", self.proxy])
+            logger.debug(f"[MaterialScout] 使用代理: {self.proxy}")
+        return args
 
     def run(self, input_data: Dict[str, Any]) -> AgentResult:
         """
@@ -122,6 +144,7 @@ class MaterialScoutAgent(BaseAgent):
         try:
             cmd = [
                 "yt-dlp",
+                *self._build_ytdlp_auth_args(),
                 f"ytsearch{max_results * _SEARCH_OVER_FETCH_FACTOR}:{keywords}",
                 "--dump-json",
                 "--flat-playlist",
@@ -210,7 +233,13 @@ class MaterialScoutAgent(BaseAgent):
     def _get_video_info(self, url: str) -> Optional[dict]:
         """获取视频元信息（不下载）"""
         try:
-            cmd = ["yt-dlp", "--dump-json", "--no-download", url]
+            cmd = [
+                "yt-dlp",
+                *self._build_ytdlp_auth_args(),
+                "--dump-json",
+                "--no-download",
+                url,
+            ]
             proc = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=60
             )
@@ -228,6 +257,7 @@ class MaterialScoutAgent(BaseAgent):
         try:
             cmd = [
                 "yt-dlp",
+                *self._build_ytdlp_auth_args(),
                 "--write-subs",
                 "--write-auto-subs",
                 f"--sub-langs={self.language}",
@@ -257,6 +287,7 @@ class MaterialScoutAgent(BaseAgent):
         try:
             cmd = [
                 "yt-dlp",
+                *self._build_ytdlp_auth_args(),
                 "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]",
                 "--merge-output-format=mp4",
                 "-o", video_path,
