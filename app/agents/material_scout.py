@@ -16,6 +16,9 @@ from loguru import logger
 
 from app.agents.base import BaseAgent, AgentResult
 
+# yt-dlp searches more results than needed so we can filter by view count
+_SEARCH_OVER_FETCH_FACTOR = 3
+
 
 class MaterialScoutAgent(BaseAgent):
     """
@@ -119,7 +122,7 @@ class MaterialScoutAgent(BaseAgent):
         try:
             cmd = [
                 "yt-dlp",
-                f"ytsearch{max_results * 3}:{keywords}",
+                f"ytsearch{max_results * _SEARCH_OVER_FETCH_FACTOR}:{keywords}",
                 "--dump-json",
                 "--flat-playlist",
                 "--no-download",

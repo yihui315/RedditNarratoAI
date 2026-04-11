@@ -47,6 +47,9 @@ PLOT_ANALYSIS_PROMPT = """你是一位专业的短剧剧情分析师。请仔细
 """
 
 
+_WEBVTT_HEADER = "WEBVTT"
+
+
 class PlotAnalyzerAgent(BaseAgent):
     """
     剧情提取Agent
@@ -144,7 +147,7 @@ class PlotAnalyzerAgent(BaseAgent):
                     continue
                 if "-->" in line:
                     continue
-                if line.startswith("WEBVTT"):
+                if line.startswith(_WEBVTT_HEADER):
                     continue
                 text_lines.append(line)
 
