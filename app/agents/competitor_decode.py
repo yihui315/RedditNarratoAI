@@ -147,6 +147,7 @@ class CompetitorDecodeAgent(BaseAgent):
         for line in golden_lines:
             if line and line not in existing_lines:
                 library["golden_lines"].append(line)
+                existing_lines.add(line)
 
         self._save_json_file(self.hooks_file, library)
 

@@ -126,16 +126,12 @@ class ReviewDiagnosisAgent(BaseAgent):
             # Calculate overall if not provided
             if not review.get("overall_score"):
                 scores = review["scores"]
-                total = sum(
-                    s.get("score", 0)
-                    for s in scores.values()
-                    if isinstance(s, dict)
-                )
-                count = sum(
-                    1
-                    for s in scores.values()
-                    if isinstance(s, dict) and "score" in s
-                )
+                total = 0
+                count = 0
+                for s in scores.values():
+                    if isinstance(s, dict) and "score" in s:
+                        total += s["score"]
+                        count += 1
                 review["overall_score"] = round(total / max(count, 1), 1)
 
             return AgentResult(

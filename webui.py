@@ -174,7 +174,7 @@ with tab_daily:
                 st.error(f"保存失败: {e}")
 
     daily_btn = st.button(
-        "🚀 ~daily 一键启动今日操盘手",
+        "🚀 一键启动今日操盘手",
         type="primary",
         use_container_width=True,
         key="daily_btn",
@@ -200,7 +200,7 @@ with tab_daily:
                 batch_size=batch_size,
                 topic_mode=topic_mode,
                 auto_mode=auto_mode,
-                user_input=persona_input if persona_input else daily_input,
+                user_input=daily_input,
             )
 
             if result.get("success"):
@@ -249,7 +249,7 @@ with tab_decode:
     )
 
     decode_btn = st.button(
-        "🔍 ~decode 开始拆解",
+        "🔍 开始拆解",
         type="primary",
         use_container_width=True,
         key="decode_btn",
@@ -529,7 +529,7 @@ with tab_review:
     review_title = st.text_input("视频标题（可选）", key="review_title")
 
     review_btn = st.button(
-        "📊 ~review 开始诊断",
+        "📊 开始诊断",
         type="primary",
         use_container_width=True,
         key="review_btn",

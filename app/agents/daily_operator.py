@@ -7,6 +7,7 @@ Agent v4.0: DailyOperator — 每日操盘手Supervisor
 灵感来源: binghe Agent 的 ~daily 功能
 """
 
+import datetime
 import json
 import os
 import time
@@ -28,7 +29,12 @@ class DailyOperatorAgent(BaseAgent):
     def __init__(self, config: dict):
         super().__init__(config, name="DailyOperator")
         root_dir = config.get("app", {}).get("root_dir", ".")
-        self.calendar_dir = os.path.join(root_dir, "config", "content-calendar")
+        # Sanitize: resolve to absolute path and ensure it stays within root_dir
+        safe_root = os.path.realpath(root_dir)
+        calendar_path = os.path.realpath(os.path.join(safe_root, "config", "content-calendar"))
+        if not calendar_path.startswith(safe_root):
+            calendar_path = os.path.join(safe_root, "config", "content-calendar")
+        self.calendar_dir = calendar_path
         os.makedirs(self.calendar_dir, exist_ok=True)
 
     def run(self, input_data: Dict[str, Any]) -> AgentResult:
@@ -132,8 +138,6 @@ class DailyOperatorAgent(BaseAgent):
             slot_index = i % len(posting_times)
             day_offset = i // len(posting_times)
 
-            # Simple date calculation
-            import datetime
             post_date = datetime.datetime.strptime(today, "%Y-%m-%d") + datetime.timedelta(days=day_offset)
 
             entries.append({
