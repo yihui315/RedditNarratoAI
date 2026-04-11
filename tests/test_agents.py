@@ -295,6 +295,55 @@ class TestMaterialScout:
         )
         assert agent.verify(missing_files) is False
 
+    def test_auth_args_empty_by_default(self, base_config):
+        """No auth args when config has no cookie/proxy settings"""
+        agent = MaterialScoutAgent(base_config)
+        assert agent._build_ytdlp_auth_args() == []
+
+    def test_auth_args_cookies_file(self, base_config):
+        """cookies_file adds --cookies flag"""
+        base_config["youtube"]["cookies_file"] = "/path/to/cookies.txt"
+        agent = MaterialScoutAgent(base_config)
+        args = agent._build_ytdlp_auth_args()
+        assert "--cookies" in args
+        assert "/path/to/cookies.txt" in args
+
+    def test_auth_args_cookies_from_browser(self, base_config):
+        """cookies_from_browser adds --cookies-from-browser flag"""
+        base_config["youtube"]["cookies_from_browser"] = "edge"
+        agent = MaterialScoutAgent(base_config)
+        args = agent._build_ytdlp_auth_args()
+        assert "--cookies-from-browser" in args
+        assert "edge" in args
+
+    def test_auth_args_cookies_file_takes_precedence(self, base_config):
+        """cookies_file takes precedence over cookies_from_browser"""
+        base_config["youtube"]["cookies_file"] = "/path/to/cookies.txt"
+        base_config["youtube"]["cookies_from_browser"] = "edge"
+        agent = MaterialScoutAgent(base_config)
+        args = agent._build_ytdlp_auth_args()
+        assert "--cookies" in args
+        assert "--cookies-from-browser" not in args
+
+    def test_auth_args_proxy(self, base_config):
+        """proxy adds --proxy flag"""
+        base_config["youtube"]["proxy"] = "http://127.0.0.1:7890"
+        agent = MaterialScoutAgent(base_config)
+        args = agent._build_ytdlp_auth_args()
+        assert "--proxy" in args
+        assert "http://127.0.0.1:7890" in args
+
+    def test_auth_args_combined(self, base_config):
+        """cookies + proxy can be used together"""
+        base_config["youtube"]["cookies_from_browser"] = "chrome"
+        base_config["youtube"]["proxy"] = "socks5://127.0.0.1:1080"
+        agent = MaterialScoutAgent(base_config)
+        args = agent._build_ytdlp_auth_args()
+        assert "--cookies-from-browser" in args
+        assert "chrome" in args
+        assert "--proxy" in args
+        assert "socks5://127.0.0.1:1080" in args
+
 
 # ------------------------------------------------------------------
 # Orchestrator Tests
