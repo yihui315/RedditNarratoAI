@@ -169,18 +169,19 @@ class DubbingAgent(BaseAgent):
             )
             await communicate.save(audio_path)
 
-        # 在新事件循环中运行（避免与外层asyncio冲突）
+        # 使用新事件循环运行（兼容Python 3.10+）
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # 如果已在async上下文中，创建新线程运行
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    pool.submit(lambda: asyncio.run(_generate())).result(timeout=120)
-            else:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
                 loop.run_until_complete(_generate())
+            finally:
+                loop.close()
         except RuntimeError:
-            asyncio.run(_generate())
+            # 已在async上下文中，创建新线程运行
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                pool.submit(lambda: asyncio.run(_generate())).result(timeout=120)
 
         logger.info(f"[DubbingAgent] Edge TTS配音完成: {audio_path}")
         return audio_path
