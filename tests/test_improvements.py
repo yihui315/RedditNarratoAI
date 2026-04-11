@@ -281,20 +281,22 @@ class TestCLIConfigCheck:
     def test_cli_help_shows_config(self):
         """CLI --help should show config subcommand."""
         import subprocess
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         result = subprocess.run(
             ["python", "cli.py", "--help"],
             capture_output=True, text=True,
-            cwd="/home/runner/work/RedditNarratoAI/RedditNarratoAI"
+            cwd=project_root,
         )
         assert "config" in result.stdout
 
     def test_config_check_runs(self):
         """config check should run without crashing."""
         import subprocess
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         result = subprocess.run(
             ["python", "cli.py", "config", "check"],
             capture_output=True, text=True,
-            cwd="/home/runner/work/RedditNarratoAI/RedditNarratoAI"
+            cwd=project_root,
         )
         assert "环境检查" in result.stdout
 
