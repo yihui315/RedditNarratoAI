@@ -1,7 +1,7 @@
 """
-RedditNarratoAI v3.0 Web界面
+RedditNarratoAI v4.0 Web界面 — 短剧超级操盘手版
 Reddit帖子 / YouTube短剧 → AI影视解说视频
-支持: 9-Agent Pipeline / B-roll / AI视频生成 / SEO / 自动发布
+支持: 14-Agent Pipeline / 操盘手模式 / 竞品拆解 / 智能选题 / 爆款评分
 """
 
 import streamlit as st
@@ -18,14 +18,14 @@ from app.config import config
 from app.pipeline import RedditVideoPipeline, run_pipeline
 
 st.set_page_config(
-    page_title="RedditNarratoAI v3.0",
+    page_title="RedditNarratoAI v4.0 - 短剧超级操盘手",
     page_icon="🚀",
     layout="wide"
 )
 
 # 标题
-st.title("🚀 RedditNarratoAI v3.0")
-st.markdown("**Reddit帖子 / YouTube短剧 → AI文案改写 → 9-Agent全自动生产 → 多平台发布**")
+st.title("🚀 RedditNarratoAI v4.0 — 短剧超级操盘手")
+st.markdown("**Reddit帖子 / YouTube短剧 → AI文案改写 → 14-Agent全自动生产 → 多平台发布**")
 
 # 侧边栏配置
 with st.sidebar:
@@ -118,8 +118,217 @@ with st.sidebar:
         "platforms": publish_platforms,
     }
 
-# 主界面 - Tab切换
-tab_reddit, tab_agent = st.tabs(["📰 Reddit 模式", "🎬 短剧解说 (9-Agent v3.0)"])
+# 主界面 - Tab切换 (v4.0: 5个Tab)
+tab_daily, tab_decode, tab_reddit, tab_agent, tab_review = st.tabs([
+    "🎯 操盘手模式", "🔍 竞品拆解", "📰 Reddit 模式",
+    "🎬 短剧解说 (14-Agent v4.0)", "📊 质量诊断"
+])
+
+# ==================== 操盘手模式 (v4.0) ====================
+with tab_daily:
+    st.subheader("每日操盘手 — 一键全流程")
+    st.markdown("""
+    🔥 **v4.0核心功能**: 大白话输入 → 自动选题 → 批量文案 → 爆款评分 → 内容日历
+    """)
+
+    col_d1, col_d2 = st.columns([2, 1])
+    with col_d1:
+        daily_input = st.text_area(
+            "大白话描述你的需求（自然语言意图识别）",
+            placeholder="例如：我今天想发5条短剧解说，风格偏悬疑的\n或：帮我找最近Reddit上最火的故事",
+            height=100,
+        )
+        topic_mode = st.selectbox(
+            "选题模式",
+            options=["hot", "mine", "rival", "flash"],
+            format_func=lambda x: {
+                "hot": "🔥 热门 (Reddit/YouTube热榜)",
+                "mine": "💎 挖掘 (历史数据新角度)",
+                "rival": "👀 竞品 (分析对手爆款)",
+                "flash": "⚡ 热点 (突发事件/热搜)",
+            }[x],
+        )
+    with col_d2:
+        batch_size = st.number_input("每日产出数量", min_value=1, max_value=50, value=5)
+        auto_mode = st.checkbox("全自动模式（无需人工确认）", value=True)
+
+    # 画像管理
+    with st.expander("👤 创作者画像设置", expanded=False):
+        persona_input = st.text_area(
+            "描述你的创作者定位",
+            placeholder="例如：我是短剧解说博主，风格犀利吐槽，目标受众18-35岁",
+            height=80,
+        )
+        if st.button("💾 保存/更新画像", key="save_persona"):
+            try:
+                from app.agents.orchestrator import AgentOrchestrator
+                orch = AgentOrchestrator(full_config)
+                persona_result = orch.persona_master.execute({
+                    "user_input": persona_input,
+                    "force_refresh": True,
+                })
+                if persona_result.success:
+                    st.success("✅ 画像已保存!")
+                    st.json(persona_result.data.get("persona", {}))
+            except Exception as e:
+                st.error(f"保存失败: {e}")
+
+    daily_btn = st.button(
+        "🚀 ~daily 一键启动今日操盘手",
+        type="primary",
+        use_container_width=True,
+        key="daily_btn",
+    )
+
+    daily_status = st.empty()
+    daily_progress = st.progress(0)
+
+    if daily_btn:
+        try:
+            from app.agents.orchestrator import AgentOrchestrator
+
+            daily_status.info("正在启动操盘手模式...")
+            orch = AgentOrchestrator(full_config)
+            orch.set_progress_callback(
+                lambda a, p, m: (
+                    daily_progress.progress(p / 100.0),
+                    daily_status.info(f"[{a}] {m}"),
+                )
+            )
+
+            result = orch.run_daily(
+                batch_size=batch_size,
+                topic_mode=topic_mode,
+                auto_mode=auto_mode,
+                user_input=persona_input if persona_input else daily_input,
+            )
+
+            if result.get("success"):
+                daily_status.success(
+                    f"✅ 操盘手计划就绪！"
+                    f"生成了 {len(result.get('topics', []))} 个选题"
+                )
+
+                st.subheader("📋 今日选题")
+                for i, topic in enumerate(result.get("topics", [])):
+                    st.markdown(f"**{i+1}. {topic.get('title', '未知')}**")
+                    if topic.get("hook"):
+                        st.caption(f"🎣 钩子: {topic['hook']}")
+
+                if result.get("daily_plan", {}).get("calendar_entries"):
+                    st.subheader("📅 内容日历")
+                    for entry in result["daily_plan"]["calendar_entries"]:
+                        st.markdown(
+                            f"📌 {entry.get('date')} {entry.get('time')} — "
+                            f"{entry.get('title')}"
+                        )
+
+                st.subheader("📝 下一步")
+                for step in result.get("next_steps", []):
+                    st.markdown(f"- {step}")
+            else:
+                daily_status.error("操盘手模式启动失败")
+
+        except Exception as e:
+            daily_status.error(f"错误: {e}")
+            import traceback
+            st.code(traceback.format_exc())
+
+# ==================== 竞品拆解 (v4.0) ====================
+with tab_decode:
+    st.subheader("竞品拆解 — 拆框架、存公式、秒懂爆款逻辑")
+    st.markdown("粘贴竞品文案 → 自动拆解结构/情绪曲线/钩子公式 → 存入公式库")
+
+    competitor_text = st.text_area(
+        "粘贴竞品文案",
+        placeholder="粘贴一条竞品的解说文案...",
+        height=200,
+    )
+    decode_source = st.selectbox(
+        "来源平台", ["reddit", "youtube", "douyin", "tiktok", "other"]
+    )
+
+    decode_btn = st.button(
+        "🔍 ~decode 开始拆解",
+        type="primary",
+        use_container_width=True,
+        key="decode_btn",
+    )
+
+    if decode_btn and competitor_text:
+        try:
+            from app.agents.orchestrator import AgentOrchestrator
+
+            orch = AgentOrchestrator(full_config)
+            result = orch.run_decode(competitor_text, source=decode_source)
+
+            if result.get("success"):
+                decode = result["decode"]
+                st.success("✅ 拆解完成!")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("### 📐 结构骨架")
+                    structure = decode.get("structure", {})
+                    st.markdown(f"**🎣 钩子:** {structure.get('hook', '')}")
+                    st.markdown(f"**📖 铺垫:** {structure.get('setup', '')}")
+                    st.markdown(f"**💥 核心:** {structure.get('core', '')}")
+                    st.markdown(f"**🔚 收束:** {structure.get('closure', '')}")
+
+                with col2:
+                    st.markdown("### 📈 情绪曲线")
+                    for point in decode.get("emotion_curve", []):
+                        intensity = point.get("intensity", 0)
+                        bar = "█" * intensity + "░" * (10 - intensity)
+                        st.markdown(
+                            f"{point.get('timestamp', '')} "
+                            f"{point.get('emotion', '')} [{bar}] {intensity}/10"
+                        )
+
+                st.markdown("### ✨ 金句")
+                for line in decode.get("golden_lines", []):
+                    st.markdown(f"> {line}")
+
+                formula = decode.get("hook_formula", {})
+                if formula:
+                    st.markdown("### 🧪 钩子公式 (已入库)")
+                    st.info(
+                        f"**{formula.get('name', '')}**: "
+                        f"{formula.get('template', '')}\n\n"
+                        f"例: {formula.get('example', '')}"
+                    )
+
+                st.markdown("### 🔄 迁移角度")
+                for angle in decode.get("transferable_angles", []):
+                    st.markdown(f"- {angle}")
+
+                st.metric("爆款指数", f"{decode.get('viral_score', 0)}/10")
+            else:
+                st.error(f"拆解失败: {result.get('error', '未知错误')}")
+
+        except Exception as e:
+            st.error(f"错误: {e}")
+            import traceback
+            st.code(traceback.format_exc())
+
+    # 公式库展示
+    with st.expander("📚 公式库 & 钩子库", expanded=False):
+        formula_path = Path(__file__).parent / "config" / "formula-library.json"
+        hooks_path = Path(__file__).parent / "config" / "hooks-library.json"
+
+        if formula_path.exists():
+            with open(formula_path, "r", encoding="utf-8") as f:
+                formulas = json.load(f)
+            st.markdown("**🧪 爆款公式库**")
+            for fm in formulas.get("formulas", []):
+                st.markdown(f"- **{fm.get('name', '')}**: {fm.get('template', '')}")
+
+        if hooks_path.exists():
+            with open(hooks_path, "r", encoding="utf-8") as f:
+                hooks = json.load(f)
+            st.markdown("**🎣 钩子库**")
+            for hook in hooks.get("hooks", [])[:10]:
+                st.markdown(f"> {hook}")
 
 # ==================== Reddit模式 ====================
 with tab_reddit:
@@ -203,9 +412,9 @@ with tab_reddit:
 
 # ==================== Agent短剧解说模式 ====================
 with tab_agent:
-    st.subheader("YouTube短剧自动解说 (v3.0 9-Agent Pipeline)")
+    st.subheader("YouTube短剧自动解说 (v4.0 14-Agent Pipeline)")
     st.markdown("""
-    🔥 **v3.0新功能**: 搜索YouTube短剧 → AI剧情分析 → 爆款文案 → 配音 → B-roll匹配 → AI视频生成 → 视频合成 → SEO优化 → 自动发布
+    🔥 **v4.0**: 画像 → 选题 → 拆解 → 搜索 → 分析 → 文案 → 评分 → 配音 → B-roll → AI视频 → 剪辑 → SEO → 发布 + 操盘手Supervisor
     """)
 
     input_mode = st.radio("输入方式", ["🔍 关键词搜索", "🔗 直接输入URL"], horizontal=True)
@@ -306,28 +515,115 @@ with tab_agent:
             import traceback
             st.code(traceback.format_exc())
 
+# ==================== 质量诊断 (v4.0) ====================
+with tab_review:
+    st.subheader("爆款评分 & 质量诊断")
+    st.markdown("5维度评分：钩子强度 / 情绪曲线 / 节奏时长 / 算法友好度 / 转化路径")
+
+    review_script = st.text_area(
+        "粘贴待诊断文案",
+        placeholder="粘贴你写的解说文案...",
+        height=200,
+        key="review_script",
+    )
+    review_title = st.text_input("视频标题（可选）", key="review_title")
+
+    review_btn = st.button(
+        "📊 ~review 开始诊断",
+        type="primary",
+        use_container_width=True,
+        key="review_btn",
+    )
+
+    if review_btn and review_script:
+        try:
+            from app.agents.orchestrator import AgentOrchestrator
+
+            orch = AgentOrchestrator(full_config)
+            result = orch.run_review(review_script, title=review_title)
+
+            if result.get("success"):
+                review = result["review"]
+                st.success("✅ 诊断完成!")
+
+                # Overall score
+                overall = review.get("overall_score", 0)
+                viral = review.get("viral_probability", "N/A")
+                col_m1, col_m2 = st.columns(2)
+                col_m1.metric("综合评分", f"{overall}/10")
+                col_m2.metric("爆款概率", viral)
+
+                # 5-dimension scores
+                st.markdown("### 📊 5维度评分")
+                scores = review.get("scores", {})
+                dim_names = {
+                    "hook_power": "🎣 钩子强度",
+                    "emotion_arc": "📈 情绪曲线",
+                    "pacing": "⏱️ 节奏时长",
+                    "algorithm_fit": "🤖 算法友好",
+                    "conversion_clarity": "🎯 转化路径",
+                }
+                for key, label in dim_names.items():
+                    dim = scores.get(key, {})
+                    score = dim.get("score", 0)
+                    st.markdown(f"**{label}**: {'⭐' * score}{'☆' * (10 - score)} ({score}/10)")
+                    if dim.get("reason"):
+                        st.caption(f"分析: {dim['reason']}")
+                    if dim.get("suggestion"):
+                        st.caption(f"💡 建议: {dim['suggestion']}")
+
+                # Issues and suggestions
+                if review.get("top_issues"):
+                    st.markdown("### ⚠️ 最需要改进")
+                    for issue in review["top_issues"]:
+                        st.warning(issue)
+
+                if review.get("rewrite_suggestions"):
+                    st.markdown("### 💡 修改建议")
+                    for sug in review["rewrite_suggestions"]:
+                        st.info(sug)
+
+                if review.get("comment_bait"):
+                    st.markdown("### 💬 评论引导语")
+                    st.success(review["comment_bait"])
+            else:
+                st.error(f"诊断失败: {result.get('error', '未知错误')}")
+
+        except Exception as e:
+            st.error(f"错误: {e}")
+            import traceback
+            st.code(traceback.format_exc())
+
 # 使用说明
 with st.expander("📖 使用说明"):
     st.markdown("""
-    ### 两种模式
+    ### v4.0 五大模式
+
+    #### 🎯 操盘手模式 (~daily)
+    一键启动全流程：自动选题 → 批量文案 → 爆款评分 → 内容日历
+    - 支持自然语言输入（大白话描述需求）
+    - 4种选题模式：热门/挖掘/竞品/热点
+    - 全自动或人工确认两种模式
+
+    #### 🔍 竞品拆解 (~decode)
+    粘贴竞品文案，自动拆解：
+    - 结构骨架（钩子-铺垫-核心-收束）
+    - 情绪曲线峰值分析
+    - 核心金句 + 可迁移公式
+    - 自动存入公式库 & 钩子库
 
     #### 📰 Reddit 模式
-    将Reddit帖子（AskReddit等）转为AI解说视频：
-    1. 配置Reddit API凭证（侧边栏）
-    2. 输入Reddit帖子URL
-    3. 选择故事模式（推荐）
-    4. 点击开始生成
+    将Reddit帖子（AskReddit等）转为AI解说视频
 
-    #### 🎬 Agent 短剧解说模式 (v3.0 9-Agent Pipeline)
+    #### 🎬 Agent 短剧解说模式 (v4.0 14-Agent Pipeline)
     自动搜索YouTube短剧并生成解说视频：
-    1. 输入搜索关键词或直接粘贴YouTube链接
-    2. 系统自动执行9个Agent:
-       - MaterialScout → PlotAnalyzer → ScriptWriter → VoiceAgent
-       - → BrollMatcher → VideoGen → VideoEditor → SEO → Publish
-    3. 支持批量处理多条视频
-    4. 可选: B-roll自动匹配（需Pexels API Key）
-    5. 可选: AI视频生成（需Kling/Runway API Key）
-    6. 可选: 自动发布到TikTok/YouTube/Instagram
+    1. PersonaMaster → TopicEngine → CompetitorDecode → MaterialScout
+    2. PlotAnalyzer → ScriptWriter → ReviewDiagnosis → VoiceAgent
+    3. BrollMatcher → VideoGen → VideoEditor → SEO → Publish
+    4. + DailyOperator 操盘手Supervisor
+
+    #### 📊 质量诊断 (~review)
+    5维度爆款评分：钩子强度/情绪曲线/节奏时长/算法友好/转化路径
 
     ### 配置要求
     - **LLM**: Ollama本地运行（推荐）或OpenAI/DeepSeek API
@@ -339,6 +635,6 @@ with st.expander("📖 使用说明"):
 # 底部信息
 st.markdown("---")
 st.markdown(
-    "<center>RedditNarratoAI v3.0 | 9-Agent Pipeline | Reddit + YouTube → AI解说视频 → 多平台发布</center>",
+    "<center>RedditNarratoAI v4.0 | 14-Agent Pipeline | 短剧超级操盘手 | Reddit + YouTube → AI解说视频 → 多平台发布</center>",
     unsafe_allow_html=True
 )

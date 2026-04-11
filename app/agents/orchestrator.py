@@ -1,14 +1,21 @@
 """
-多Agent编排器（Orchestrator）v3.0
-协调9个Agent按顺序/并行执行，实现全自动短剧解说视频生产
+多Agent编排器（Orchestrator）v4.0 — 短剧超级操盘手版
+协调14个Agent按顺序/并行执行，实现全自动短剧解说视频生产
 
-工作流 (v3.0 9-Agent Pipeline):
-  MaterialScout → PlotAnalyzer → ScriptWriter → VoiceAgent
+工作流 (v4.0 14-Agent Pipeline):
+  PersonaMaster → TopicEngine → CompetitorDecode → MaterialScout
+    → PlotAnalyzer → ScriptWriter → ReviewDiagnosis → VoiceAgent
     → BrollMatcher → VideoGen → VideoEditor → SEO → Publish
+  DailyOperator (Supervisor模式，可独立调用)
 
 支持:
   - 单条视频生产
   - 批量模式（多条素材并行）
+  - 操盘手模式（~daily 一键全流程）
+  - 竞品拆解 + 公式库自动积累
+  - 持久化画像 + 风格一致性
+  - 5维度爆款评分诊断
+  - 4模式智能选题
   - 进度回调
   - B-roll自动匹配（可选）
   - AI视频生成（可选，Kling/Runway）
@@ -30,22 +37,33 @@ from app.agents.plot_analyzer import PlotAnalyzerAgent
 from app.agents.script_writer import ScriptWriterAgent
 from app.agents.voice_agent import VoiceAgent
 from app.agents.video_editor import VideoEditorAgent
-# v3.0 新增 Agents
+# v3.0 Agents
 from app.agents.video_gen import VideoGenAgent
 from app.agents.broll_matcher import BrollMatcherAgent
 from app.agents.seo_agent import SEOAgent
 from app.agents.publish_agent import PublishAgent
+# v4.0 新增 Agents
+from app.agents.persona_master import PersonaMasterAgent
+from app.agents.competitor_decode import CompetitorDecodeAgent
+from app.agents.topic_engine import TopicEngineAgent
+from app.agents.review_diagnosis import ReviewDiagnosisAgent
+from app.agents.daily_operator import DailyOperatorAgent
 
 
 class AgentOrchestrator:
     """
-    全自动多Agent编排器 v3.0
+    全自动多Agent编排器 v4.0 — 短剧超级操盘手版
 
     用法:
         orch = AgentOrchestrator(config)
+        # 经典模式 (v3兼容)
         results = orch.run(keywords="short drama revenge")
-        # 或
-        results = orch.run(urls=["https://youtube.com/watch?v=xxx"])
+        # 操盘手模式 (v4.0 ~daily)
+        plan = orch.run_daily(batch_size=5, topic_mode="hot")
+        # 竞品拆解
+        decode = orch.run_decode("竞品文案文本...")
+        # 选题
+        topics = orch.run_topics(mode="hot")
     """
 
     def __init__(self, config: dict):
@@ -58,11 +76,17 @@ class AgentOrchestrator:
         self.script_writer = ScriptWriterAgent(config)
         self.voice_agent = VoiceAgent(config)
         self.video_editor = VideoEditorAgent(config)
-        # v3.0 新增
+        # v3.0
         self.video_gen = VideoGenAgent(config)
         self.broll_matcher = BrollMatcherAgent(config)
         self.seo_agent = SEOAgent(config)
         self.publish_agent = PublishAgent(config)
+        # v4.0 新增
+        self.persona_master = PersonaMasterAgent(config)
+        self.competitor_decode = CompetitorDecodeAgent(config)
+        self.topic_engine = TopicEngineAgent(config)
+        self.review_diagnosis = ReviewDiagnosisAgent(config)
+        self.daily_operator = DailyOperatorAgent(config)
 
         # 自我迭代数据存储
         self._iteration_dir = Path(
@@ -303,6 +327,149 @@ class AgentOrchestrator:
             f"[{idx+1}/{total}] ✅ 完成: {title}",
         )
         return result
+
+    # ------------------------------------------------------------------
+    # v4.0: 操盘手模式入口
+    # ------------------------------------------------------------------
+
+    def run_daily(
+        self,
+        batch_size: int = 5,
+        topic_mode: str = "hot",
+        auto_mode: bool = True,
+        user_input: str = "",
+    ) -> Dict[str, Any]:
+        """
+        操盘手模式 (~daily)：一键启动全流程
+
+        Args:
+            batch_size: 每日产出数量
+            topic_mode: 选题模式 (hot/mine/rival/flash)
+            auto_mode: 全自动模式
+            user_input: 用户画像输入（首次使用时）
+        """
+        self._update_progress("DailyOperator", 0, "启动操盘手模式...")
+
+        # Phase 1: 加载/生成画像
+        self._update_progress("PersonaMaster", 5, "加载创作者画像...")
+        persona_result = self.persona_master.execute({"user_input": user_input})
+        persona = persona_result.data.get("persona", {}) if persona_result.success else {}
+
+        # Phase 2: 智能选题
+        self._update_progress("TopicEngine", 15, f"生成选题 (模式: {topic_mode})...")
+        topics_result = self.topic_engine.execute({
+            "mode": topic_mode,
+            "persona": persona,
+        })
+        topics = topics_result.data.get("topics", []) if topics_result.success else []
+
+        # Phase 3: 生成日计划
+        self._update_progress("DailyOperator", 30, "生成每日内容计划...")
+        daily_result = self.daily_operator.execute({
+            "batch_size": batch_size,
+            "topic_mode": topic_mode,
+            "persona": persona,
+            "topics": topics,
+            "auto_mode": auto_mode,
+        })
+
+        plan = daily_result.data.get("daily_plan", {}) if daily_result.success else {}
+
+        self._update_progress("DailyOperator", 100, "操盘手计划就绪")
+
+        return {
+            "success": daily_result.success,
+            "persona": persona,
+            "topics": topics,
+            "daily_plan": plan,
+            "plan_path": daily_result.data.get("plan_path", "") if daily_result.success else "",
+            "next_steps": daily_result.data.get("next_steps", []) if daily_result.success else [],
+        }
+
+    def run_decode(
+        self, competitor_text: str, source: str = "unknown"
+    ) -> Dict[str, Any]:
+        """
+        竞品拆解 (~decode)
+
+        Args:
+            competitor_text: 竞品文案文本
+            source: 来源平台
+        """
+        self._update_progress("CompetitorDecode", 0, "开始拆解竞品...")
+        result = self.competitor_decode.execute({
+            "competitor_text": competitor_text,
+            "source": source,
+        })
+        self._update_progress("CompetitorDecode", 100, "拆解完成")
+        return {
+            "success": result.success,
+            "decode": result.data.get("decode", {}) if result.success else {},
+            "error": result.error,
+        }
+
+    def run_topics(
+        self,
+        mode: str = "hot",
+        context: str = "",
+        user_input: str = "",
+    ) -> Dict[str, Any]:
+        """
+        智能选题 (~topics)
+
+        Args:
+            mode: 选题模式 (mine/hot/rival/flash)
+            context: 附加上下文
+            user_input: 用户画像输入
+        """
+        self._update_progress("TopicEngine", 0, "生成选题...")
+
+        # Load persona
+        persona_result = self.persona_master.execute({"user_input": user_input})
+        persona = persona_result.data.get("persona", {}) if persona_result.success else {}
+
+        result = self.topic_engine.execute({
+            "mode": mode,
+            "persona": persona,
+            "context": context,
+        })
+
+        self._update_progress("TopicEngine", 100, "选题完成")
+        return {
+            "success": result.success,
+            "topics": result.data.get("topics", []) if result.success else [],
+            "strategy_note": result.data.get("strategy_note", "") if result.success else "",
+            "error": result.error,
+        }
+
+    def run_review(
+        self, script: str, title: str = "", user_input: str = ""
+    ) -> Dict[str, Any]:
+        """
+        质量诊断 (~review)
+
+        Args:
+            script: 待诊断文案
+            title: 视频标题
+            user_input: 用户画像输入
+        """
+        self._update_progress("ReviewDiagnosis", 0, "开始质量诊断...")
+
+        persona_result = self.persona_master.execute({"user_input": user_input})
+        persona = persona_result.data.get("persona", {}) if persona_result.success else {}
+
+        result = self.review_diagnosis.execute({
+            "script": script,
+            "title": title,
+            "persona": persona,
+        })
+
+        self._update_progress("ReviewDiagnosis", 100, "诊断完成")
+        return {
+            "success": result.success,
+            "review": result.data.get("review", {}) if result.success else {},
+            "error": result.error,
+        }
 
     # ------------------------------------------------------------------
     # Self-iteration feedback
