@@ -143,6 +143,7 @@ class TestBrollMatcherAgent:
         assert result.data["broll_clips"] == []
 
     def test_extract_keywords(self, base_config, sample_analysis):
+        base_config["pexels"]["max_clips"] = 10  # allow more keywords
         agent = BrollMatcherAgent(base_config)
         keywords = agent._extract_keywords("城市里的一个夜晚", sample_analysis)
         assert "复仇" in keywords
@@ -320,9 +321,18 @@ class TestOrchestratorV3:
         assert calls[0][0] == "MaterialScout"
 
     def test_iteration_data_saved(self, base_config):
-        """Iteration data should be saved after run"""
+        """Iteration data should be saved after a successful run"""
         orch = AgentOrchestrator(base_config)
-        orch.run(keywords="", urls=[])
+
+        # Mock material scout to return a material, then plot analyzer fails
+        # This ensures we get past the early return and reach _save_iteration_data
+        mock_scout_result = AgentResult(
+            success=True,
+            data={"materials": [{"video_id": "test", "title": "test", "subtitle_path": "", "video_path": ""}]},
+        )
+        with patch.object(orch.material_scout, "execute", return_value=mock_scout_result):
+            orch.run(keywords="test")
+
         # Check iteration directory has files
         import glob
         files = glob.glob(str(orch._iteration_dir / "iteration_*.json"))
