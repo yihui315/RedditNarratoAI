@@ -24,6 +24,8 @@ services:
       - ollama_data:/root/.ollama
     ports:
       - "11434:11434"
+    # GPU support (requires NVIDIA Docker runtime + GPU hardware)
+    # Remove the 'deploy' block below if running without a GPU
     deploy:
       resources:
         reservations:

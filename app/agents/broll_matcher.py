@@ -164,7 +164,7 @@ class BrollMatcherAgent(BaseAgent):
                     continue
 
                 # Download
-                clip_path = str(output_dir / f"broll_{i}_{keyword[:20]}.mp4")
+                clip_path = str(output_dir / f"broll_{i}.mp4")
                 video_resp = requests.get(download_url, timeout=60)
                 with open(clip_path, "wb") as f:
                     f.write(video_resp.content)

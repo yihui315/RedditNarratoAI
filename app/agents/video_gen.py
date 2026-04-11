@@ -219,7 +219,7 @@ class VideoGenAgent(BaseAgent):
         }
 
         resp = requests.post(
-            "https://api.dev.runwayml.com/v1/image_to_video",
+            "https://api.dev.runwayml.com/v1/text_to_video",
             json=payload,
             headers=headers,
             timeout=30,

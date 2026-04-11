@@ -284,7 +284,7 @@ with tab_agent:
                             if seo.get("tags"):
                                 st.write("🏷️ 标签: " + ", ".join(seo["tags"][:10]))
                             if seo.get("hashtags"):
-                                st.write("# 话题: " + " ".join(seo["hashtags"][:8]))
+                                st.write("🏷️ 话题: " + " ".join(seo["hashtags"][:8]))
 
                         # v3.0: 发布状态
                         publish = res.get("publish", {})
