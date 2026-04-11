@@ -3,7 +3,7 @@
 
 [app]
 name = "RedditNarratoAI"
-version = "0.1.0"
+version = "0.2.0"
 debug = false
 
 [reddit]
@@ -11,8 +11,9 @@ debug = false
 creds = { }
 
 [llm]
-# OpenAI兼容API (支持Ollama)
-provider = "openai"  # openai / azure / ollama
+# 统一LLM配置 — Pipeline 和 Agent 共用
+# 支持 OpenAI 兼容 API (支持Ollama/DeepSeek/Azure等)
+provider = "openai"  # openai / azure / ollama / deepseek
 api_base = "http://localhost:11434/v1"  # Ollama默认地址
 api_key = "not-needed"  # Ollama不需要key
 model = "deepseek-r1:32b"  # 或 qwen2.5:32b 等
@@ -20,11 +21,11 @@ max_tokens = 4096
 temperature = 0.7
 
 [tts]
-# TTS引擎: edge (推荐) / elevenlabs / gtts / azure
+# TTS引擎: edge (推荐) / azure
 provider = "edge"
 voice = "zh-CN-XiaoxiaoNeural"  # 中文语音
-rate = "+0%"
-pitch = "+0Hz"
+rate = "+0%"    # 语速: "+0%"=正常, "+50%"=加速50%, "-20%"=减速20%
+pitch = "+0Hz"  # 语调: "+0Hz"=正常, "+10Hz"=升调
 volume = "+0%"
 
 [video]
@@ -44,9 +45,15 @@ color = "#FFFFFF"
 bg_color = "#00000080"
 position = "bottom"  # bottom / top / center
 
+[bgm]
+# 背景音乐设置
+enabled = false
+file = ""        # BGM文件路径（留空则不使用BGM）
+volume = 0.15    # BGM音量 (0.0-1.0)，建议0.1-0.2避免盖过解说
+
 [video_background]
-# 背景素材来源
-source = "auto"  # auto: AI分析选择 / reddit_images: Reddit图片 / local: 本地视频
+# 背景素材来源（Agent模式会自动使用下载的源视频）
+source = "auto"  # auto / local
 local_video_path = "./resource/videos"
 image_dir = "./resource/images"
 

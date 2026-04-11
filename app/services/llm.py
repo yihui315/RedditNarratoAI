@@ -360,6 +360,96 @@ def _generate_response(prompt: str, llm_provider: str = None) -> str:
     return content.replace("\n", "")
 
 
+def generate_response_from_config(prompt: str, config_dict: dict = None, system_prompt: str = "") -> str:
+    """
+    统一LLM调用入口 — 优先读 config_dict["llm"] 配置段，
+    兼容旧的 config.app.{provider}_api_key 方式。
+
+    这是推荐的LLM调用方法，所有新代码应使用此函数。
+
+    Args:
+        prompt: 用户提示词
+        config_dict: 配置字典（包含 [llm] 段），如果为 None 则从 config.toml 自动加载
+        system_prompt: 可选的系统提示词
+
+    Returns:
+        str: LLM 响应文本
+    """
+    llm_cfg = (config_dict or {}).get("llm", {})
+
+    # 如果 config_dict 中没有 [llm] 段，回退到旧 _generate_response()
+    if not llm_cfg or not llm_cfg.get("provider"):
+        return _generate_response(prompt)
+
+    provider = llm_cfg.get("provider", "openai")
+    api_key = llm_cfg.get("api_key", "")
+    api_base = llm_cfg.get("api_base", "")
+    model = llm_cfg.get("model", "")
+    max_tokens = llm_cfg.get("max_tokens", 4096)
+    temperature = llm_cfg.get("temperature", 0.7)
+
+    # Provider 特殊默认值
+    if provider == "ollama":
+        api_key = api_key or "ollama"
+        api_base = api_base or "http://localhost:11434/v1"
+    elif provider == "openai":
+        api_base = api_base or "https://api.openai.com/v1"
+    elif provider == "deepseek":
+        api_base = api_base or "https://api.deepseek.com"
+
+    if not api_key:
+        raise ValueError(f"[llm] api_key 未配置 (provider={provider})")
+    if not model:
+        raise ValueError(f"[llm] model 未配置 (provider={provider})")
+    if not api_base:
+        raise ValueError(f"[llm] api_base 未配置 (provider={provider})")
+
+    logger.info(f"[unified-llm] provider={provider}, model={model}, base={api_base}")
+
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    if provider == "azure":
+        api_version = llm_cfg.get("api_version", "2024-02-15-preview")
+        client = AzureOpenAI(
+            api_key=api_key,
+            api_version=api_version,
+            azure_endpoint=api_base,
+        )
+    else:
+        client = OpenAI(api_key=api_key, base_url=api_base)
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+
+    if response and isinstance(response, ChatCompletion):
+        return response.choices[0].message.content.strip()
+
+    raise Exception(f"[{provider}] 返回空响应，请检查网络或配置")
+
+
+def generate_script_simple(prompt: str, config_dict: dict = None, system_prompt: str = "") -> str:
+    """
+    简化版文案生成接口 — 为 Pipeline 使用。
+    直接发送 prompt 给 LLM 并返回结果。
+
+    Args:
+        prompt: 文案生成提示词
+        config_dict: 配置字典
+        system_prompt: 系统提示词
+
+    Returns:
+        str: 生成的文案
+    """
+    return generate_response_from_config(prompt, config_dict, system_prompt)
+
+
 def _generate_response_video(prompt: str, llm_provider_video: str, video_file: Union[str, TextIO]) -> str:
     """
     多模态能力大模型

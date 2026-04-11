@@ -60,18 +60,19 @@ class VideoEditorAgent(BaseAgent):
         os.makedirs(session_dir, exist_ok=True)
 
         try:
-            # Step 1: 生成字幕文件
+            # Step 1: 生成字幕文件（使用TTS实际时长对齐）
             subtitle_path = os.path.join(session_dir, "subtitle.srt")
             create_srt_from_text(
                 text=script,
                 output_path=subtitle_path,
                 config=self.config,
+                durations=durations,
             )
 
             # Step 2: 构造VideoSegment列表
             segments = self._build_segments(script, audio_path, durations)
 
-            # Step 3: 合成视频
+            # Step 3: 合成视频（使用源视频作为背景画面）
             video_path = create_video_from_segments(
                 segments=segments,
                 audio_path=audio_path,
@@ -79,6 +80,7 @@ class VideoEditorAgent(BaseAgent):
                 output_dir=session_dir,
                 config=self.config,
                 title=title,
+                source_video_path=source_video,
             )
 
             if not video_path or not os.path.exists(video_path):
