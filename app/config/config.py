@@ -73,16 +73,8 @@ def write_config_file(config_data):
 
 
 def save_config():
+    """将当前内存中的完整配置写回 config.toml"""
     with open(config_file, "w", encoding="utf-8") as f:
-        _cfg["app"] = app
-        _cfg["proxy"] = proxy
-        _cfg["azure"] = azure
-        _cfg["tencent"] = tencent
-        _cfg["soulvoice"] = soulvoice
-        _cfg["ui"] = ui
-        _cfg["tts_qwen"] = tts_qwen
-        _cfg["indextts2"] = indextts2
-        _cfg["doubaotts"] = doubaotts
         f.write(toml.dumps(_cfg))
 
 

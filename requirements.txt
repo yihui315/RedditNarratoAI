@@ -8,6 +8,7 @@ edge-tts>=7.2.7
 streamlit>=1.45.0
 watchdog>=6.0.0
 loguru>=0.7.3
+toml>=0.10.2
 tomli>=2.2.1
 tomli-w>=1.0.0
 pydub==0.25.1
