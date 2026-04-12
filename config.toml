@@ -3,15 +3,16 @@
 
 [app]
 name = "RedditNarratoAI"
-version = "0.1.0"
+version = "0.2.0"
 debug = false
 
 [reddit]
-# Reddit API 凭证 (从 https://www.reddit.com/prefs/apps 获取)
+# [可选] Reddit API 凭证 (从 https://www.reddit.com/prefs/apps 获取)
+# 仅在使用Reddit流水线时需要
 creds = { }
 
 [llm]
-# OpenAI兼容API (支持Ollama)
+# [必填] OpenAI兼容API (支持Ollama)
 provider = "openai"  # openai / azure / ollama
 api_base = "http://localhost:11434/v1"  # Ollama默认地址
 api_key = "not-needed"  # Ollama不需要key
@@ -20,7 +21,7 @@ max_tokens = 4096
 temperature = 0.7
 
 [tts]
-# TTS引擎: edge (推荐) / elevenlabs / gtts / azure
+# [必填] TTS引擎: edge (推荐，免费) / elevenlabs / gtts / azure
 provider = "edge"
 voice = "zh-CN-XiaoxiaoNeural"  # 中文语音
 rate = "+0%"
@@ -30,11 +31,16 @@ volume = "+0%"
 [video]
 # 输出设置
 output_dir = "./output"
+# 画面比例预设: landscape(16:9横屏) / portrait(9:16竖屏) / square(1:1方形)
+# 设置 aspect 后 width/height 自动生效，不设则使用下面的 width/height
+aspect = ""
 width = 1920
 height = 1080
 fps = 30
 codec = "libx264"
 audio_codec = "aac"
+# [可选] 背景音乐文件路径
+bgm_path = ""
 
 [subtitle]
 # 字幕设置
@@ -56,7 +62,7 @@ ffmpeg = "ffmpeg"  # 或完整路径
 fonts_dir = "./fonts"
 
 [youtube]
-# YouTube素材搜索设置 (Agent模式)
+# [可选] YouTube素材搜索设置 (Agent模式)
 max_results = 5       # 每次搜索最多返回几条
 min_views = 500000    # 最低播放量筛选
 search_period = "7d"  # 搜索最近多久的视频
@@ -66,3 +72,7 @@ subtitle_language = "zh"  # 优先下载的字幕语言
 # 多Agent系统设置
 work_dir = "./output/agents"  # Agent工作目录
 max_retries = 3               # 单个Agent最大重试次数
+
+[style]
+# 文案风格预设: suspense(悬疑) / humor(搞笑) / shock(震惊) / warm(温情) / educational(科普)
+default = "shock"

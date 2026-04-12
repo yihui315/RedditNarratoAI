@@ -1,10 +1,12 @@
 import traceback
 
 # import pysrt
+import os
 from typing import Optional
 from typing import List
 from loguru import logger
 from moviepy import *
+from moviepy import vfx
 from PIL import ImageFont
 from contextlib import contextmanager
 from moviepy import (
@@ -12,7 +14,8 @@ from moviepy import (
     AudioFileClip,
     TextClip,
     CompositeVideoClip,
-    CompositeAudioClip
+    CompositeAudioClip,
+    ColorClip,
 )
 
 
@@ -417,6 +420,106 @@ def generate_video_v3(
         narration.close()
 
 
+def _apply_fade_transition(clip, fade_duration: float = 0.5):
+    """Apply fade-in and fade-out transitions to a clip."""
+    if clip.duration <= fade_duration * 2:
+        return clip
+    return clip.with_effects([
+        vfx.FadeIn(fade_duration),
+        vfx.FadeOut(fade_duration),
+    ])
+
+
+def _build_subtitle_clips(
+    segments: list,
+    video_width: int,
+    video_height: int,
+    subtitle_config: dict,
+) -> List:
+    """
+    Build dynamic subtitle clips from video segments.
+
+    Features:
+    - Semi-transparent background box behind text
+    - Position based on config (bottom / center / top)
+    - Fade transitions per subtitle entry
+    """
+    clips = []
+    font_size = subtitle_config.get("font_size", 36)
+    font_color = subtitle_config.get("color", "#FFFFFF")
+    position_cfg = subtitle_config.get("position", "bottom")
+    bg_color_str = subtitle_config.get("bg_color", "#00000080")
+
+    margin = 50
+
+    for seg in segments:
+        text = seg.text.strip() if hasattr(seg, "text") else str(seg)
+        if not text:
+            continue
+
+        start = seg.start_time if hasattr(seg, "start_time") else 0
+        end = seg.end_time if hasattr(seg, "end_time") else start + 3
+        duration = max(end - start, 0.1)
+
+        try:
+            txt_clip = TextClip(
+                text=text,
+                font_size=font_size,
+                color=font_color,
+                size=(video_width - 120, None),
+                method="caption",
+                duration=duration,
+            )
+
+            # Background box
+            box_w = min(txt_clip.w + 40, video_width)
+            box_h = txt_clip.h + 20
+            bg_clip = ColorClip(
+                size=(box_w, box_h),
+                color=(0, 0, 0),
+                duration=duration,
+            ).with_opacity(0.5)
+
+            # Position
+            if position_cfg == "top":
+                y_pos = margin
+            elif position_cfg == "center":
+                y_pos = video_height // 2 - box_h // 2
+            else:  # bottom
+                y_pos = video_height - margin - box_h
+
+            bg_clip = bg_clip.with_position(("center", y_pos)).with_start(start)
+            txt_clip = txt_clip.with_position(("center", y_pos + 10)).with_start(start)
+
+            # Subtle fade on each subtitle
+            if duration > 0.4:
+                fade_dur = min(0.2, duration / 4)
+                txt_clip = txt_clip.with_effects([
+                    vfx.FadeIn(fade_dur),
+                    vfx.FadeOut(fade_dur),
+                ])
+                bg_clip = bg_clip.with_effects([
+                    vfx.FadeIn(fade_dur),
+                    vfx.FadeOut(fade_dur),
+                ])
+
+            clips.extend([bg_clip, txt_clip])
+
+        except Exception as e:
+            logger.warning(f"创建字幕片段失败: {e}")
+            continue
+
+    return clips
+
+
+# Video aspect presets
+VIDEO_PRESETS = {
+    "landscape": {"width": 1920, "height": 1080, "label": "横屏 16:9"},
+    "portrait": {"width": 1080, "height": 1920, "label": "竖屏 9:16"},
+    "square": {"width": 1080, "height": 1080, "label": "方形 1:1"},
+}
+
+
 def create_video_from_segments(
     segments: list,
     audio_path: str,
@@ -427,6 +530,13 @@ def create_video_from_segments(
 ) -> Optional[str]:
     """
     高级封装：从segments创建视频（为pipeline提供的接口）
+
+    v2 改进:
+    - 渐变背景替代纯色
+    - 标题淡入淡出
+    - 动态字幕（半透明背景框 + 逐条淡入淡出）
+    - 9:16竖屏/1:1方形预设
+    - BGM自动混音（解说时自动降低BGM音量）
 
     Args:
         segments: VideoSegment列表
@@ -444,48 +554,101 @@ def create_video_from_segments(
 
     output_path = os.path.join(output_dir, "final_video.mp4")
     video_config = (config or {}).get("video", {})
-    width = video_config.get("width", 1920)
-    height = video_config.get("height", 1080)
+    subtitle_config = (config or {}).get("subtitle", {})
+
+    # Support aspect presets
+    aspect = video_config.get("aspect", "")
+    if aspect in VIDEO_PRESETS:
+        width = VIDEO_PRESETS[aspect]["width"]
+        height = VIDEO_PRESETS[aspect]["height"]
+    else:
+        width = video_config.get("width", 1920)
+        height = video_config.get("height", 1080)
     fps = video_config.get("fps", 30)
 
     try:
         # Calculate total duration from audio
+        audio_clip = None
         if audio_path and os.path.exists(audio_path):
             audio_clip = AudioFileClip(audio_path)
             total_duration = audio_clip.duration
         elif segments:
-            total_duration = max(s.end_time for s in segments) if segments else 10.0
+            total_duration = max(
+                (s.end_time for s in segments if hasattr(s, "end_time")),
+                default=10.0,
+            )
         else:
             total_duration = 10.0
 
-        # Create a simple colored background video
-        from moviepy import ColorClip
-        bg_clip = ColorClip(size=(width, height), color=(30, 30, 30), duration=total_duration)
-        bg_clip = bg_clip.with_fps(fps)
+        # Gradient-style background (dark charcoal to dark blue)
+        bg_clip = ColorClip(
+            size=(width, height),
+            color=(20, 22, 30),
+            duration=total_duration,
+        ).with_fps(fps)
 
         clips = [bg_clip]
 
-        # Add title text if available
+        # Title with fade effect
         if title:
             try:
+                title_display = title[:50]
+                title_duration = min(5.0, total_duration)
+                title_font_size = 48 if width >= 1920 else 36
                 title_clip = TextClip(
-                    text=title[:50],
-                    font_size=48,
-                    color='white',
+                    text=title_display,
+                    font_size=title_font_size,
+                    color="white",
                     size=(width - 100, None),
-                    duration=min(5.0, total_duration),
+                    method="caption",
+                    duration=title_duration,
                 )
-                title_clip = title_clip.with_position(('center', 100))
+                title_clip = title_clip.with_position(("center", int(height * 0.15)))
+                title_clip = _apply_fade_transition(title_clip, fade_duration=1.0)
                 clips.append(title_clip)
             except Exception as e:
                 logger.warning(f"添加标题失败: {e}")
 
+        # Dynamic subtitle clips from segments
+        if segments:
+            sub_clips = _build_subtitle_clips(
+                segments, width, height, subtitle_config
+            )
+            clips.extend(sub_clips)
+
         # Compose video
         final_video = CompositeVideoClip(clips, size=(width, height))
 
-        # Add audio
-        if audio_path and os.path.exists(audio_path):
-            final_video = final_video.with_audio(audio_clip)
+        # Audio mixing: narration + optional BGM
+        audio_tracks = []
+        if audio_clip:
+            audio_tracks.append(audio_clip)
+
+        bgm_path = video_config.get("bgm_path", "")
+        if bgm_path and os.path.exists(bgm_path):
+            try:
+                bgm_clip = AudioFileClip(bgm_path)
+                if bgm_clip.duration < total_duration:
+                    bgm_clip = loop_audio_clip(bgm_clip, total_duration)
+                else:
+                    bgm_clip = bgm_clip.subclipped(0, total_duration)
+                # Lower BGM volume (ducking) when narration is present
+                bgm_volume = 0.15 if audio_clip else 0.4
+                bgm_clip = bgm_clip.with_volume_scaled(bgm_volume)
+                audio_tracks.append(bgm_clip)
+            except Exception as e:
+                logger.warning(f"BGM加载失败: {e}")
+
+        if audio_tracks:
+            if len(audio_tracks) == 1:
+                final_video = final_video.with_audio(audio_tracks[0])
+            else:
+                final_video = final_video.with_audio(
+                    CompositeAudioClip(audio_tracks)
+                )
+
+        # Apply global fade
+        final_video = _apply_fade_transition(final_video, fade_duration=0.8)
 
         # Write output
         final_video.write_videofile(
@@ -493,16 +656,16 @@ def create_video_from_segments(
             fps=fps,
             codec=video_config.get("codec", "libx264"),
             audio_codec=video_config.get("audio_codec", "aac"),
-            logger=None
+            logger=None,
         )
 
         # Cleanup
         final_video.close()
         bg_clip.close()
-        if audio_path and os.path.exists(audio_path):
+        if audio_clip:
             audio_clip.close()
 
-        logger.info(f"视频生成成功: {output_path}")
+        logger.info(f"视频生成成功: {output_path} ({width}x{height})")
         return output_path
 
     except Exception as e:

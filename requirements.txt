@@ -40,7 +40,7 @@ translators>=5.9.9
 # pyJianYingDraft>=0.1.0
 
 # YouTube素材下载 (Agent模式)
-yt-dlp>=2026.2.21
+yt-dlp>=2024.12.1
 
 # 开发依赖
 pytest>=7.0.0
