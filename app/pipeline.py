@@ -235,6 +235,7 @@ class RedditVideoPipeline:
         model = llm_config.get("model", "deepseek-r1:32b")
         max_tokens = llm_config.get("max_tokens", 4096)
         temperature = llm_config.get("temperature", 0.7)
+        timeout = llm_config.get("timeout", 120.0)
 
         if not api_key:
             raise ConfigError(
@@ -255,7 +256,7 @@ class RedditVideoPipeline:
             client = OpenAI(
                 api_key=api_key,
                 base_url=api_base,
-                timeout=60.0,
+                timeout=timeout,
             )
             messages = []
             if system_prompt:

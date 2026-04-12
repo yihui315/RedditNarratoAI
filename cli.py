@@ -29,8 +29,8 @@ RedditNarratoAI CLI
 import argparse
 import json
 import os
-import sys
 import shutil
+import sys
 from loguru import logger
 
 from app.config.config import load_config
