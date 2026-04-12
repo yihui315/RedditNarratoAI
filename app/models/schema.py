@@ -61,6 +61,7 @@ class _Config:
 
 
 @pydantic.dataclasses.dataclass(config=_Config)
+@pydantic.dataclasses.dataclass(config=pydantic.ConfigDict(arbitrary_types_allowed=True))
 class MaterialInfo:
     provider: str = "pexels"
     url: str = ""

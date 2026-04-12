@@ -55,6 +55,13 @@ hide_config = true
         self.assertEqual("https://api.siliconflow.cn/v1", config_data["app"]["text_openai_base_url"])
         self.assertEqual("Qwen/Qwen3.5-122B-A10B", saved_config["app"]["vision_openai_model_name"])
         self.assertEqual("Pro/zai-org/GLM-5", saved_config["app"]["text_openai_model_name"])
+        self.assertEqual("", config_data["app"]["vision_openai_model_name"])
+        self.assertEqual("http://localhost:11434/v1", config_data["app"]["vision_openai_base_url"])
+        self.assertEqual("openai", config_data["app"]["text_llm_provider"])
+        self.assertEqual("", config_data["app"]["text_openai_model_name"])
+        self.assertEqual("http://localhost:11434/v1", config_data["app"]["text_openai_base_url"])
+        self.assertEqual("", saved_config["app"]["vision_openai_model_name"])
+        self.assertEqual("", saved_config["app"]["text_openai_model_name"])
         self.assertTrue(saved_config["app"]["hide_config"])
 
 

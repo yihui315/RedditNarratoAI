@@ -1,0 +1,41 @@
+services:
+  app:
+    build: .
+    container_name: redditnarratoai-v5
+    ports:
+      - "8501:8501"  # Streamlit
+    volumes:
+      - ./output:/app/output
+      - ./config.toml:/app/config.toml:ro
+      - ./config:/app/config
+    environment:
+      - PYTHONPATH=/app
+      - OLLAMA_HOST=http://ollama:11434
+      # v5.0 可选API Keys (也可在config.toml中配置)
+      # - GPT_SOVITS_API=http://gpt-sovits:9880
+      # - MINIMAX_API_KEY=
+      # - VIDU_API_KEY=
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    # GPU support (requires NVIDIA Docker runtime + GPU hardware)
+    # Uncomment the 'deploy' block below if running with a NVIDIA GPU
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  ollama_data:

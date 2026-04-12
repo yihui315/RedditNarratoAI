@@ -2314,6 +2314,52 @@ def generate_voice(text: str, output_dir: str, config_dict: dict = None) -> tupl
     voice_pitch = 1.0
 
     # 拆分为段落
+def generate_voice(text: str, output_dir: str, config: dict = None) -> Tuple[str, List[float]]:
+    """
+    高级封装：为pipeline提供的TTS生成接口
+
+    Args:
+        text: 需要生成语音的文本
+        output_dir: 输出目录
+        config: 配置字典
+
+    Returns:
+        (audio_path, durations): 音频文件路径和每段时长列表
+    """
+    import os
+    os.makedirs(output_dir, exist_ok=True)
+
+    tts_config = (config or {}).get("tts", {})
+    voice_name = tts_config.get("voice", "zh-CN-XiaoxiaoNeural")
+    tts_engine = tts_config.get("provider", "edge")
+    # Map provider names to engine names
+    engine_map = {"edge": "edge_tts", "azure": "azure_speech", "edge_tts": "edge_tts"}
+    tts_engine = engine_map.get(tts_engine, "edge_tts")
+
+    voice_rate = tts_config.get("rate", "+0%")
+    voice_pitch = tts_config.get("pitch", "+0Hz")
+
+    # Parse rate/pitch strings (e.g. "+50%", "-20%") to float multipliers
+    # e.g. "+0%" → 1.0, "+50%" → 1.5, "-20%" → 0.8
+    def _parse_rate_string(s):
+        """Parse '+50%' to 1.5 or '+0%' to 1.0"""
+        if isinstance(s, (int, float)):
+            return float(s)
+        s = str(s).strip()
+        try:
+            # Remove % suffix if present
+            cleaned = s.replace('%', '').replace('Hz', '')
+            pct = float(cleaned)
+            return 1.0 + pct / 100.0
+        except (ValueError, TypeError):
+            return 1.0
+
+    if isinstance(voice_rate, str):
+        voice_rate = _parse_rate_string(voice_rate)
+    if isinstance(voice_pitch, str):
+        voice_pitch = _parse_rate_string(voice_pitch)
+
+    # Split text into paragraphs
     paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
     if not paragraphs:
         paragraphs = [text]
@@ -2328,6 +2374,14 @@ def generate_voice(text: str, output_dir: str, config_dict: dict = None) -> tupl
         try:
             sub_maker = azure_tts_v1(
                 text=paragraph,
+    durations = []
+    audio_files = []
+
+    for i, para in enumerate(paragraphs):
+        voice_file = os.path.join(output_dir, f"voice_{i:03d}.mp3")
+        try:
+            sub_maker = tts(
+                text=para,
                 voice_name=voice_name,
                 voice_rate=voice_rate,
                 voice_pitch=voice_pitch,
@@ -2362,6 +2416,25 @@ def generate_voice(text: str, output_dir: str, config_dict: dict = None) -> tupl
         import shutil
         shutil.copy2(audio_files[0], final_audio_path)
     else:
+                tts_engine=tts_engine
+            )
+            if sub_maker and os.path.exists(voice_file):
+                duration = get_audio_duration_from_file(voice_file)
+                durations.append(duration)
+                audio_files.append(voice_file)
+            else:
+                # Estimate duration based on text length
+                durations.append(len(para) * 0.15)
+                logger.warning(f"TTS生成段落 {i} 失败，使用估算时长")
+        except Exception as e:
+            logger.error(f"TTS生成段落 {i} 出错: {e}")
+            durations.append(len(para) * 0.15)
+
+    # Merge audio files if multiple
+    if len(audio_files) == 1:
+        final_audio = audio_files[0]
+    elif len(audio_files) > 1:
+        final_audio = os.path.join(output_dir, "merged_voice.mp3")
         try:
             from pydub import AudioSegment
             combined = AudioSegment.empty()
@@ -2376,3 +2449,11 @@ def generate_voice(text: str, output_dir: str, config_dict: dict = None) -> tupl
 
     logger.info(f"语音生成完成: {final_audio_path}, 共 {len(durations)} 段")
     return final_audio_path, durations
+            combined.export(final_audio, format="mp3")
+        except Exception as e:
+            logger.error(f"合并音频失败: {e}")
+            final_audio = audio_files[0]
+    else:
+        final_audio = ""
+
+    return final_audio, durations

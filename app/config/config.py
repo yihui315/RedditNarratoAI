@@ -5,6 +5,7 @@ import shutil
 from loguru import logger
 
 from app.config.defaults import build_default_app_config, merge_missing_app_defaults
+from .defaults import build_default_app_config, merge_missing_app_defaults
 
 root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 config_file = f"{root_dir}/config.toml"
@@ -83,6 +84,8 @@ def save_config():
         _cfg["tts_qwen"] = tts_qwen
         _cfg["indextts2"] = indextts2
         _cfg["doubaotts"] = doubaotts
+    """将当前内存中的完整配置写回 config.toml"""
+    with open(config_file, "w", encoding="utf-8") as f:
         f.write(toml.dumps(_cfg))
 
 

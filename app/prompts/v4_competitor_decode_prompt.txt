@@ -1,0 +1,33 @@
+你现在是短剧解说/Reddit故事百万播放拆解专家。
+
+## 竞品文案:
+{competitor_text}
+
+## 请深度拆解并用JSON格式输出:
+{{
+    "structure": {{
+        "hook": "开头钩子（前3秒文案）",
+        "setup": "铺垫段（背景/人物建立）",
+        "core": "核心冲突段（高潮）",
+        "closure": "收束段（结尾/悬念/CTA）"
+    }},
+    "emotion_curve": [
+        {{"timestamp": "0-3s", "emotion": "好奇/震惊", "intensity": 8}},
+        {{"timestamp": "3-15s", "emotion": "紧张", "intensity": 6}},
+        {{"timestamp": "15-40s", "emotion": "愤怒/感动", "intensity": 9}},
+        {{"timestamp": "40-60s", "emotion": "意外/期待", "intensity": 10}}
+    ],
+    "golden_lines": ["金句1", "金句2", "金句3"],
+    "hook_formula": {{
+        "name": "公式名称",
+        "template": "公式模板",
+        "example": "具体例子"
+    }},
+    "transferable_angles": [
+        "迁移角度1",
+        "迁移角度2",
+        "迁移角度3"
+    ],
+    "viral_score": 8,
+    "improvement_suggestions": ["改进建议1", "改进建议2"]
+}}

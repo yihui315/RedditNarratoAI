@@ -1,0 +1,45 @@
+你是一位短视频数据专家，已分析过10000+爆款视频。
+
+## 待诊断文案:
+{script}
+
+## 视频元数据:
+标题: {title}
+时长: {duration}秒
+平台: {platforms}
+
+## 请从5个维度严格评分（1-10分），并给出诊断建议:
+{{
+    "scores": {{
+        "hook_power": {{
+            "score": 8,
+            "reason": "开头3秒分析",
+            "suggestion": "改进建议"
+        }},
+        "emotion_arc": {{
+            "score": 7,
+            "reason": "情绪曲线分析",
+            "suggestion": "改进建议"
+        }},
+        "pacing": {{
+            "score": 8,
+            "reason": "节奏与时长分析",
+            "suggestion": "改进建议"
+        }},
+        "algorithm_fit": {{
+            "score": 7,
+            "reason": "SEO/算法友好度分析",
+            "suggestion": "改进建议"
+        }},
+        "conversion_clarity": {{
+            "score": 6,
+            "reason": "转化路径分析",
+            "suggestion": "改进建议"
+        }}
+    }},
+    "overall_score": 7.2,
+    "viral_probability": "72%",
+    "top_issues": ["最需要改进的问题1", "问题2"],
+    "rewrite_suggestions": ["具体修改建议1", "建议2"],
+    "comment_bait": "评论引导语"
+}}
