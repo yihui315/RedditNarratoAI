@@ -2,12 +2,10 @@ import os
 import re
 import json
 import traceback
-import streamlit as st
 from typing import List
 from loguru import logger
 from openai import OpenAI
 from openai import AzureOpenAI
-from moviepy import VideoFileClip
 from openai.types.chat import ChatCompletion
 try:
     import google.generativeai as gemini
@@ -21,6 +19,25 @@ except ImportError:
     logger.warning("google-generativeai 未安装，Gemini功能不可用")
 import subprocess
 from typing import Union, TextIO
+
+# Optional imports - guard for missing packages
+try:
+    import streamlit as st
+except ImportError:
+    st = None
+
+try:
+    from moviepy import VideoFileClip
+except ImportError:
+    VideoFileClip = None
+
+try:
+    import google.generativeai as gemini
+    from googleapiclient.errors import ResumableUploadError
+    from google.api_core.exceptions import *
+    from google.generativeai.types import *
+except ImportError:
+    gemini = None
 
 from app.config import config
 from app.utils.utils import clean_model_output
@@ -115,24 +132,37 @@ Method = """
 
 
 def handle_exception(err):
-    if isinstance(err, PermissionDenied):
-        raise Exception("403 用户没有权限访问该资源")
-    elif isinstance(err, ResourceExhausted):
-        raise Exception("429 您的配额已用尽。请稍后重试。请考虑设置自动重试来处理这些错误")
-    elif isinstance(err, InvalidArgument):
-        raise Exception("400 参数无效。例如，文件过大，超出了载荷大小限制。另一个事件提供了无效的 API 密钥。")
-    elif isinstance(err, AlreadyExists):
-        raise Exception("409 已存在具有相同 ID 的已调参模型。对新模型进行调参时，请指定唯一的模型 ID。")
-    elif isinstance(err, RetryError):
-        raise Exception("使用不支持 gRPC 的代理时可能会引起此错误。请尝试将 REST 传输与 genai.configure(..., transport=rest) 搭配使用。")
-    elif isinstance(err, BlockedPromptException):
-        raise Exception("400 出于安全原因，该提示已被屏蔽。")
-    elif isinstance(err, BrokenResponseError):
-        raise Exception("500 流式传输响应已损坏。在访问需要完整响应的内容（例如聊天记录）时引发。查看堆栈轨迹中提供的错误详情。")
-    elif isinstance(err, IncompleteIterationError):
-        raise Exception("500 访问需要完整 API 响应但流式响应尚未完全迭代的内容时引发。对响应对象调用 resolve() 以使用迭代器。")
-    elif isinstance(err, ConnectionError):
-        raise Exception("网络连接错误, 请检查您的网络连接(建议使用 NarratoAI 官方提供的 url)")
+    # Google API exceptions - only check if google packages are available
+    if gemini is not None:
+        try:
+            from google.api_core.exceptions import (
+                PermissionDenied, ResourceExhausted, InvalidArgument, 
+                AlreadyExists, RetryError
+            )
+            from google.generativeai.types import (
+                BlockedPromptException, BrokenResponseError, IncompleteIterationError
+            )
+            if isinstance(err, PermissionDenied):
+                raise Exception("403 用户没有权限访问该资源")
+            elif isinstance(err, ResourceExhausted):
+                raise Exception("429 您的配额已用尽。请稍后重试。请考虑设置自动重试来处理这些错误")
+            elif isinstance(err, InvalidArgument):
+                raise Exception("400 参数无效。例如，文件过大，超出了载荷大小限制。另一个事件提供了无效的 API 密钥。")
+            elif isinstance(err, AlreadyExists):
+                raise Exception("409 已存在具有相同 ID 的已调参模型。对新模型进行调参时，请指定唯一的模型 ID。")
+            elif isinstance(err, RetryError):
+                raise Exception("使用不支持 gRPC 的代理时可能会引起此错误。请尝试将 REST 传输与 genai.configure(..., transport=rest) 搭配使用。")
+            elif isinstance(err, BlockedPromptException):
+                raise Exception("400 出于安全原因，该提示已被屏蔽。")
+            elif isinstance(err, BrokenResponseError):
+                raise Exception("500 流式传输响应已损坏。")
+            elif isinstance(err, IncompleteIterationError):
+                raise Exception("500 访问需要完整 API 响应但流式响应尚未完全迭代的内容时引发。")
+        except ImportError:
+            pass
+
+    if isinstance(err, ConnectionError):
+        raise Exception("网络连接错误, 请检查您的网络连接")
     else:
         raise Exception(f"大模型请求失败, 下面是具体报错信息: \n\n{traceback.format_exc()}")
 
@@ -902,3 +932,56 @@ if __name__ == "__main__":
     # res = clean_model_output(res)
     # aaa = json.loads(res)
     # print(json.dumps(aaa, indent=2, ensure_ascii=False))
+
+
+def generate_script_simple(prompt: str, config_dict: dict = None, system_prompt: str = "") -> str:
+    """
+    RedditNarratoAI 流水线使用的简单文本生成函数。
+    使用 OpenAI 兼容 API (支持 Ollama) 生成文本。
+
+    Args:
+        prompt: 用户提示词
+        config_dict: 配置字典，包含 llm 配置 (api_base, api_key, model 等)
+        system_prompt: 系统提示词
+
+    Returns:
+        str: 生成的文本
+    """
+    if config_dict:
+        llm_config = config_dict.get("llm", {})
+        api_base = llm_config.get("api_base", "http://localhost:11434/v1")
+        api_key = llm_config.get("api_key", "not-needed")
+        model = llm_config.get("model", "deepseek-r1:32b")
+        max_tokens = llm_config.get("max_tokens", 4096)
+        temperature = llm_config.get("temperature", 0.7)
+    else:
+        # Fallback to global config
+        api_base = config.app.get("openai_base_url", "http://localhost:11434/v1")
+        api_key = config.app.get("openai_api_key", "not-needed")
+        model = config.app.get("openai_model_name", "deepseek-r1:32b")
+        max_tokens = 4096
+        temperature = 0.7
+
+    logger.info(f"[generate_script_simple] model: {model}, api_base: {api_base}")
+
+    client = OpenAI(api_key=api_key, base_url=api_base)
+
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        content = response.choices[0].message.content or ""
+        # Clean possible thinking tags from deepseek-r1 output
+        content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+        return content
+    except Exception as e:
+        logger.error(f"LLM 生成失败: {e}")
+        raise

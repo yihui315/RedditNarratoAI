@@ -3,6 +3,15 @@ import sys
 
 from loguru import logger
 
+# Import the config submodule using a relative import so that
+# `from app.config import config` works in other modules.
+# Using `from . import config` avoids the circular import that occurs when
+# the package's own __init__.py tries to absolute-import from itself while
+# the package is still being initialized.
+from . import config  # noqa: E402
+
+
+def __init_logger():
 from . import config
 
 
@@ -14,6 +23,9 @@ def __init_logger():
     )
 
     def format_record(record):
+        file_path = record["file"].path
+        relative_path = os.path.relpath(file_path, root_dir)
+        record["file"].path = f"./{relative_path}"
         # 获取日志记录中的文件全路径
         file_path = record["file"].path
         # 将绝对路径转换为相对于项目根目录的路径

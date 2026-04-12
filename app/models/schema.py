@@ -56,6 +56,11 @@ class VideoAspect(str, Enum):
         return 1080, 1920
 
 
+class _Config:
+    arbitrary_types_allowed = True
+
+
+@pydantic.dataclasses.dataclass(config=_Config)
 @pydantic.dataclasses.dataclass(config=pydantic.ConfigDict(arbitrary_types_allowed=True))
 class MaterialInfo:
     provider: str = "pexels"

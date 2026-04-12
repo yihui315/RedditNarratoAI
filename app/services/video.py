@@ -1,4 +1,10 @@
 import traceback
+import os
+
+try:
+    import pysrt
+except ImportError:
+    pysrt = None
 
 # import pysrt
 import os
@@ -578,6 +584,27 @@ def create_video_from_segments(
     audio_path: str,
     subtitle_path: str,
     output_dir: str,
+    config_dict: dict = None,
+    title: str = "",
+) -> str:
+    """
+    RedditNarratoAI 流水线使用的视频合成函数。
+    将音频和字幕合成为带背景色的视频。
+
+    Args:
+        segments: VideoSegment 列表
+        audio_path: 配音音频路径
+        subtitle_path: SRT 字幕路径
+        output_dir: 输出目录
+        config_dict: 配置字典
+        title: 视频标题
+
+    Returns:
+        str: 生成的视频文件路径，失败返回空字符串
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    video_config = (config_dict or {}).get("video", {})
     config: dict = None,
     title: str = "",
     source_video_path: str = "",
@@ -633,6 +660,36 @@ def create_video_from_segments(
     height = video_config.get("height", 1080)
     fps = video_config.get("fps", 30)
 
+    subtitle_config = (config_dict or {}).get("subtitle", {})
+    font_size = subtitle_config.get("font_size", 36)
+    font_color = subtitle_config.get("color", "#FFFFFF")
+
+    output_path = os.path.join(output_dir, "final_video.mp4")
+
+    audio_clip = None
+    background = None
+    text_clips = []
+    final_video = None
+
+    try:
+        # 获取音频时长
+        audio_clip = AudioFileClip(audio_path)
+        total_duration = audio_clip.duration
+
+        # 创建纯色背景
+        background = ColorClip(
+            size=(width, height),
+            color=(20, 20, 30),  # 深色背景
+        ).with_duration(total_duration).with_fps(fps)
+
+        # 创建字幕文本 clips
+        if subtitle_path and os.path.exists(subtitle_path) and pysrt is not None:
+            try:
+                subs = pysrt.open(subtitle_path)
+                for sub in subs:
+                    start_time = sub.start.ordinal / 1000
+                    end_time = sub.end.ordinal / 1000
+                    sub_text = str(sub.text).strip()
     try:
         # Calculate total duration from audio
         audio_clip = None
@@ -742,6 +799,59 @@ def create_video_from_segments(
                         continue
 
                     try:
+                        text_clip = (
+                            TextClip(
+                                text=sub_text,
+                                font_size=font_size,
+                                color=font_color,
+                                size=(width - 100, None),
+                                method='caption',
+                            )
+                            .with_position(('center', height - 150))
+                            .with_start(start_time)
+                            .with_duration(end_time - start_time)
+                        )
+                        text_clips.append(text_clip)
+                    except Exception as e:
+                        logger.warning(f"创建字幕片段失败: {e}")
+            except Exception as e:
+                logger.warning(f"读取字幕文件失败: {e}")
+
+        # 如果有标题，添加标题卡片 (前3秒)
+        if title:
+            try:
+                title_clip = (
+                    TextClip(
+                        text=title,
+                        font_size=int(font_size * 1.5),
+                        color=font_color,
+                        size=(width - 200, None),
+                        method='caption',
+                    )
+                    .with_position('center')
+                    .with_start(0)
+                    .with_duration(min(3.0, total_duration))
+                )
+                text_clips.insert(0, title_clip)
+            except Exception as e:
+                logger.warning(f"创建标题失败: {e}")
+
+        # 合成视频
+        all_clips = [background] + text_clips
+        final_video = CompositeVideoClip(all_clips, size=(width, height))
+        final_video = final_video.with_audio(audio_clip)
+
+        # 导出
+        logger.info(f"开始导出视频到: {output_path}")
+        final_video.write_videofile(
+            output_path,
+            codec='libx264',
+            audio_codec='aac',
+            fps=fps,
+            preset='medium',
+        )
+
+        logger.info(f"视频导出完成: {output_path}")
                         sub_clip = TextClip(
                             text=sub_text,
                             font_size=font_size,
@@ -831,4 +941,28 @@ def create_video_from_segments(
     except Exception as e:
         logger.error(f"视频合成失败: {e}")
         logger.error(traceback.format_exc())
+        return ""
+
+    finally:
+        # 清理资源，无论成功还是失败
+        for clip in text_clips:
+            try:
+                clip.close()
+            except Exception:
+                pass
+        if final_video is not None:
+            try:
+                final_video.close()
+            except Exception:
+                pass
+        if background is not None:
+            try:
+                background.close()
+            except Exception:
+                pass
+        if audio_clip is not None:
+            try:
+                audio_clip.close()
+            except Exception:
+                pass
         return None

@@ -2271,6 +2271,49 @@ def indextts2_tts(text: str, voice_name: str, voice_file: str, speed: float = 1.
     return None
 
 
+def _generate_silence(duration: float, output_dir: str, index: int) -> str:
+    """生成指定时长的静音 MP3 文件，用于 TTS 失败时占位。"""
+    silence_file = os.path.join(output_dir, f"silence_{index:03d}.mp3")
+    try:
+        from pydub import AudioSegment
+        silence = AudioSegment.silent(duration=int(duration * 1000))
+        silence.export(silence_file, format="mp3")
+    except Exception as e:
+        logger.warning(f"无法通过 pydub 生成静音文件，写入最小有效 MP3: {e}")
+        # 最小有效 MP3 帧 (MPEG1 Layer3, 128kbps, 44100Hz, 单声道静音帧)
+        _SILENT_MP3_FRAME = (
+            b'\xff\xfb\x90\x00' + b'\x00' * 413
+        )
+        with open(silence_file, "wb") as f:
+            f.write(_SILENT_MP3_FRAME)
+    return silence_file
+
+
+# 估算每字朗读时间 (秒/字)
+_SECONDS_PER_CHAR = 0.3
+
+
+def generate_voice(text: str, output_dir: str, config_dict: dict = None) -> tuple:
+    """
+    RedditNarratoAI 流水线使用的语音生成函数。
+    将文案文本拆分为段落，逐段生成语音，最后合并。
+
+    Args:
+        text: 完整的解说文案
+        output_dir: 输出目录
+        config_dict: 配置字典，包含 tts 配置
+
+    Returns:
+        tuple: (audio_path, durations) - 音频文件路径和每段时长列表
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    tts_config = (config_dict or {}).get("tts", {})
+    voice_name = tts_config.get("voice", "zh-CN-XiaoxiaoNeural")
+    voice_rate = 1.0
+    voice_pitch = 1.0
+
+    # 拆分为段落
 def generate_voice(text: str, output_dir: str, config: dict = None) -> Tuple[str, List[float]]:
     """
     高级封装：为pipeline提供的TTS生成接口
@@ -2321,6 +2364,16 @@ def generate_voice(text: str, output_dir: str, config: dict = None) -> Tuple[str
     if not paragraphs:
         paragraphs = [text]
 
+    audio_files = []
+    durations = []
+
+    for i, paragraph in enumerate(paragraphs):
+        voice_file = os.path.join(output_dir, f"voice_{i:03d}.mp3")
+        logger.info(f"生成第 {i + 1}/{len(paragraphs)} 段语音: {paragraph[:30]}...")
+
+        try:
+            sub_maker = azure_tts_v1(
+                text=paragraph,
     durations = []
     audio_files = []
 
@@ -2333,6 +2386,36 @@ def generate_voice(text: str, output_dir: str, config: dict = None) -> Tuple[str
                 voice_rate=voice_rate,
                 voice_pitch=voice_pitch,
                 voice_file=voice_file,
+            )
+
+            if sub_maker and os.path.exists(voice_file):
+                duration = get_audio_duration_from_file(voice_file)
+                audio_files.append(voice_file)
+                durations.append(duration)
+            else:
+                logger.warning(f"第 {i + 1} 段语音生成失败，插入静音片段")
+                estimated = len(paragraph) * _SECONDS_PER_CHAR
+                silence_file = _generate_silence(estimated, output_dir, i)
+                audio_files.append(silence_file)
+                durations.append(estimated)
+        except Exception as e:
+            logger.error(f"第 {i + 1} 段语音生成出错: {e}")
+            estimated = len(paragraph) * _SECONDS_PER_CHAR
+            silence_file = _generate_silence(estimated, output_dir, i)
+            audio_files.append(silence_file)
+            durations.append(estimated)
+
+    if not audio_files:
+        logger.error("没有任何语音生成成功")
+        return "", []
+
+    # 合并所有音频文件
+    final_audio_path = os.path.join(output_dir, "narration.mp3")
+
+    if len(audio_files) == 1:
+        import shutil
+        shutil.copy2(audio_files[0], final_audio_path)
+    else:
                 tts_engine=tts_engine
             )
             if sub_maker and os.path.exists(voice_file):
@@ -2358,6 +2441,14 @@ def generate_voice(text: str, output_dir: str, config: dict = None) -> Tuple[str
             for af in audio_files:
                 segment = AudioSegment.from_file(af)
                 combined += segment
+            combined.export(final_audio_path, format="mp3")
+        except ImportError:
+            logger.warning("pydub 未安装，仅使用第一个音频文件")
+            import shutil
+            shutil.copy2(audio_files[0], final_audio_path)
+
+    logger.info(f"语音生成完成: {final_audio_path}, 共 {len(durations)} 段")
+    return final_audio_path, durations
             combined.export(final_audio, format="mp3")
         except Exception as e:
             logger.error(f"合并音频失败: {e}")

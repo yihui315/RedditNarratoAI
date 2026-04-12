@@ -292,6 +292,7 @@ class RedditVideoPipeline:
             audio_path, durations = generate_voice(
                 text=script,
                 output_dir=str(self.output_dir / session_id),
+                config_dict=self.config
                 config=self.config,
             )
         except Exception as e:
@@ -338,6 +339,7 @@ class RedditVideoPipeline:
             create_srt_from_text(
                 text=script,
                 output_path=subtitle_path,
+                config_dict=self.config
                 config=self.config,
                 durations=durations,
             )
@@ -383,6 +385,8 @@ class RedditVideoPipeline:
                 audio_path=audio_path,
                 subtitle_path=subtitle_path,
                 output_dir=str(self.output_dir / session_id),
+                config_dict=self.config,
+                title=content.thread_title
                 config=self.config,
                 title=content.thread_title,
             )
