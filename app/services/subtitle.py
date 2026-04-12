@@ -10,15 +10,37 @@ from loguru import logger
 import os
 
 # Optional imports
+class _MissingOptionalModule:
+    def __init__(self, package_name: str, install_hint: str):
+        self.package_name = package_name
+        self.install_hint = install_hint
+
+    def __getattr__(self, name):
+        raise ImportError(
+            f"Optional dependency '{self.package_name}' is required for this feature "
+            f"but is not installed. Install it with: {self.install_hint}"
+        )
+
+
+def _missing_videofileclip(*args, **kwargs):
+    raise ImportError(
+        "Optional dependency 'moviepy' is required for video/audio extraction "
+        "but is not installed. Install it with: pip install moviepy"
+    )
+
+
 try:
     import google.generativeai as genai
 except ImportError:
-    genai = None
+    genai = _MissingOptionalModule(
+        "google-generativeai",
+        "pip install google-generativeai",
+    )
 
 try:
     from moviepy import VideoFileClip
 except ImportError:
-    VideoFileClip = None
+    VideoFileClip = _missing_videofileclip
 
 from app.config import config
 from app.utils import utils
