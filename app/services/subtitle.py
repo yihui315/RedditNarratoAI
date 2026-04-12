@@ -472,6 +472,17 @@ if __name__ == "__main__":
     # #     print(f"Gemini生成的字幕文件: {gemini_subtitle_file}")
 
 
+def create_srt_from_text(
+    text: str,
+    output_path: str,
+    config: dict = None,
+    durations: list = None,
+) -> str:
+    """
+    从文本直接生成SRT字幕文件（不需要whisper模型）
+
+    当提供 *durations*（TTS 实际每段时长列表）时，字幕时间轴精确对齐音频；
+    未提供 durations 时回退到按字数估算（每秒4个中文字）。
 def create_srt_from_text(text: str, output_path: str, config: dict = None, durations: list = None) -> str:
     """
     从文本直接生成SRT字幕文件（不需要whisper模型）
@@ -483,6 +494,7 @@ def create_srt_from_text(text: str, output_path: str, config: dict = None, durat
         text: 解说文案文本
         output_path: 输出SRT文件路径
         config: 配置字典
+        durations: TTS实际每段时长(秒)列表，与 text.split('\\n') 段落一一对应
         durations: 每段的实际时长列表（秒），与段落一一对应
 
     Returns:
@@ -498,10 +510,20 @@ def create_srt_from_text(text: str, output_path: str, config: dict = None, durat
     if not paragraphs:
         paragraphs = [text]
 
+    # Fallback reading speed for Chinese text
+    CHARS_PER_SECOND = 4.0
+    MIN_DURATION_MS = 1000  # at least 1 second
+
     subs = pysrt.SubRipFile()
     current_time_ms = 0
 
     for i, para in enumerate(paragraphs):
+        # Use actual TTS duration when available, otherwise estimate
+        if durations and i < len(durations):
+            duration_ms = int(durations[i] * 1000)
+        else:
+            duration_ms = int(len(para) / CHARS_PER_SECOND * 1000)
+        duration_ms = max(duration_ms, MIN_DURATION_MS)
         if durations and i < len(durations):
             # Use actual TTS duration for precise alignment
             duration_ms = int(durations[i] * 1000)
@@ -524,5 +546,6 @@ def create_srt_from_text(text: str, output_path: str, config: dict = None, durat
         current_time_ms += duration_ms
 
     subs.save(output_path, encoding='utf-8')
-    logger.info(f"字幕文件已生成: {output_path}, 共 {len(subs)} 条")
+    sync_mode = "精确同步" if durations else "估算"
+    logger.info(f"字幕文件已生成({sync_mode}): {output_path}, 共 {len(subs)} 条")
     return output_path

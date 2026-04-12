@@ -60,6 +60,7 @@ class VideoEditorAgent(BaseAgent):
         os.makedirs(session_dir, exist_ok=True)
 
         try:
+            # Step 1: 生成字幕文件（使用TTS实际时长精确同步）
             # Step 1: 生成字幕文件（使用TTS实际时长对齐）
             subtitle_path = os.path.join(session_dir, "subtitle.srt")
             create_srt_from_text(
