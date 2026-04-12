@@ -54,6 +54,30 @@ cp config.example.toml config.toml
 # 编辑 config.toml 填入 Reddit API 凭证
 ```
 
+#### Reddit API 凭证申请
+
+1. 访问 https://www.reddit.com/prefs/apps 并登录 Reddit 账号
+2. 点击 "Create App" 或 "are another useful thing"
+3. 选择类型：**script**
+4. 填写名称（如 `RedditNarratoAI`）
+5. Redirect URI：`http://localhost:8080`（任意本地地址均可）
+6. 点击 **Create App**，记录以下三个值：
+   - `client_id` — App ID（reddit icon 下方的字符串）
+   - `client_secret` — App Secret
+   - `user_agent` — 任意描述，如 `RedditNarratoAI/0.1`
+
+编辑 `config.toml`：
+```toml
+[reddit]
+creds = {
+    client_id = "你的client_id",
+    client_secret = "你的client_secret",
+    user_agent = "RedditNarratoAI/0.1"
+}
+```
+
+> 注意：Reddit 开发者账号需要一定的 karma 才能创建 App。如果没有 Reddit 账号，可以跳过 Reddit 数据获取，直接通过 B站视频 或 本地视频 模式使用。
+
 ### 3. 运行
 
 ```bash

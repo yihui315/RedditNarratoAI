@@ -16,7 +16,7 @@ from moviepy import (
 )
 
 
-from app.models.schema import VideoAspect, SubtitlePosition
+from app.models import VideoAspect, SubtitlePosition
 
 
 def wrap_text(text, max_width, font, fontsize=60):
@@ -415,3 +415,116 @@ def generate_video_v3(
         bgm.close()
     if narration_path:
         narration.close()
+
+
+# =============================================================================
+# Pipeline-compatible wrapper functions (added to fix missing imports)
+# =============================================================================
+
+def create_video_from_segments(
+    segments: list,
+    output_path: str = "output.mp4",
+    width: int = 1920,
+    height: int = 1080,
+    fps: int = 30,
+    config_dict: dict = None,
+) -> str:
+    """
+    Create a video from a list of segments (text, audio, image).
+
+    Args:
+        segments: List of dicts, each containing:
+            - text: narration text
+            - audio_path: path to TTS audio file
+            - subtitle_path: path to SRT file (optional)
+            - image_path: path to background image (optional)
+        output_path: Output video file path.
+        width: Video width in pixels.
+        height: Video height in pixels.
+        fps: Frames per second.
+        config_dict: Optional config dict (unused, for API compatibility).
+
+    Returns:
+        str: Path to the generated video file.
+    """
+    from moviepy import ImageClip, AudioFileClip
+    from moviepy.video.fx import Loop
+    import tempfile, os
+
+    clips = []
+
+    for seg in segments:
+        text = seg.get("text", "")
+        audio_path = seg.get("audio_path")
+        image_path = seg.get("image_path")
+        subtitle_path = seg.get("subtitle_path")
+
+        # Determine background clip
+        if image_path and os.path.exists(image_path):
+            bg_clip = ImageClip(image_path).resize((width, height))
+        else:
+            # Create a black background if no image
+            bg_clip = ImageClip(None).with_duration(5).resize((width, height))
+
+        # Determine duration from audio if available
+        duration = 5.0  # default
+        audio_clip = None
+        if audio_path and os.path.exists(audio_path):
+            try:
+                audio_clip = AudioFileClip(audio_path)
+                duration = audio_clip.duration
+                bg_clip = bg_clip.with_duration(duration)
+            except Exception as e:
+                logger.warning(f"Could not load audio {audio_path}: {e}")
+
+        # Add subtitle text overlay if text provided
+        if text:
+            try:
+                fontsize = int(height * 0.04)
+                txt_clip = (
+                    TextClip(
+                        text=text[:200],  # truncate very long text
+                        font_size=fontsize,
+                        color="white",
+                        stroke_color="black",
+                        stroke_width=1.5,
+                        font="SimHei",
+                        size=(width, None),
+                        method="caption",
+                    )
+                    .with_duration(duration)
+                    .with_position("center", "center")
+                )
+                bg_clip = CompositeVideoClip([bg_clip, txt_clip], size=(width, height))
+            except Exception as e:
+                logger.warning(f"TextClip creation failed: {e}")
+
+        if audio_clip:
+            bg_clip = bg_clip.with_audio(audio_clip)
+
+        clips.append(bg_clip)
+
+    if not clips:
+        raise ValueError("No video clips to concatenate")
+
+    if len(clips) == 1:
+        final_clip = clips[0]
+    else:
+        from moviepy import concatenate_videoclips
+        final_clip = concatenate_videoclips(clips, method="compose")
+
+    final_clip.write_videofile(
+        output_path,
+        fps=fps,
+        codec="libx264",
+        audio_codec="aac",
+        threads=2,
+        logger=None,
+    )
+
+    for c in clips:
+        c.close()
+    if audio_clip:
+        audio_clip.close()
+
+    return output_path

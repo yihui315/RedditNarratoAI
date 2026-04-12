@@ -2255,8 +2255,8 @@ def indextts2_tts(text: str, voice_name: str, voice_file: str, speed: float = 1.
             # 确保关闭文件
             try:
                 files['prompt_audio'].close()
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"IndexTTS2 文件关闭时出错: {e}")
 
         if attempt < 2:  # 不是最后一次尝试
             time.sleep(2)  # 等待2秒后重试
@@ -2264,8 +2264,46 @@ def indextts2_tts(text: str, voice_name: str, voice_file: str, speed: float = 1.
             if attempt < 2:
                 try:
                     files['prompt_audio'] = open(reference_audio_path, 'rb')
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"IndexTTS2 重新打开文件时出错: {e}")
 
     logger.error("IndexTTS2 TTS 生成失败，已达到最大重试次数")
     return None
+
+
+# =============================================================================
+# Pipeline-compatible wrapper functions (added to fix missing imports)
+# =============================================================================
+
+def generate_voice(text: str, output_path: str = None, voice_name: str = None, rate: float = 1.0) -> str:
+    """
+    Per-paragraph Edge TTS wrapper for pipeline use.
+
+    Args:
+        text: Text to convert to speech.
+        output_path: Output audio file path. If None, a temp file is created.
+        voice_name: Edge TTS voice name (defaults to config tts.voice).
+        rate: Speech rate multiplier (1.0 = normal).
+
+    Returns:
+        str: Path to the generated audio file.
+    """
+    import tempfile
+    import asyncio
+
+    _voice = voice_name or config.get("tts.voice", "zh-CN-XiaoxiaoNeural")
+
+    if output_path is None:
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+            output_path = f.name
+
+    async def _do():
+        communicate = edge_tts.Communicate(
+            text,
+            _voice,
+            rate=convert_rate_to_percent(rate),
+        )
+        await communicate.save(output_path)
+
+    asyncio.run(_do())
+    return output_path

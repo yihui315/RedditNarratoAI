@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main, copilot/**]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run smoke tests
+        run: |
+          python -c "from app.config import config; print('config OK')"
+          python -c "from app.services.llm import generate_script_simple; print('generate_script_simple OK')"
+          python -c "from app.services.voice import generate_voice; print('generate_voice OK')"
+          python -c "from app.services.subtitle import create_srt_from_text; print('create_srt_from_text OK')"
+          python -c "from app.services.video import create_video_from_segments; print('create_video_from_segments OK')"
+          python -c "from app.pipeline import RedditVideoPipeline; print('RedditVideoPipeline OK')"
+          python -c "from app.models import VideoAspect, SubtitlePosition; print('models OK')"
+
+      - name: Run pytest
+        run: pytest tests/test_v5.py -v

@@ -9,10 +9,18 @@ from openai import OpenAI
 from openai import AzureOpenAI
 from moviepy import VideoFileClip
 from openai.types.chat import ChatCompletion
-import google.generativeai as gemini
+try:
+    import google.genai as gemini
+except ImportError:
+    import google.generativeai as gemini
+
+try:
+    from google.genai import types as gemini_types
+except ImportError:
+    from google.generativeai import types as gemini_types
+
 from googleapiclient.errors import ResumableUploadError
 from google.api_core.exceptions import *
-from google.generativeai.types import *
 import subprocess
 from typing import Union, TextIO
 
@@ -251,7 +259,10 @@ def _generate_response(prompt: str, llm_provider: str = None) -> str:
                 raise Exception(f"[{llm_provider}] returned an empty response")
 
         if llm_provider == "gemini":
-            import google.generativeai as genai
+            try:
+                import google.genai as genai
+            except ImportError:
+                import google.generativeai as genai
 
             genai.configure(api_key=api_key, transport="rest")
 
@@ -368,7 +379,10 @@ def _generate_response_video(prompt: str, llm_provider_video: str, video_file: U
         )
 
     if llm_provider_video == "gemini":
-        import google.generativeai as genai
+        try:
+            import google.genai as genai
+        except ImportError:
+            import google.generativeai as genai
 
         genai.configure(api_key=api_key, transport="rest")
 
@@ -806,3 +820,37 @@ if __name__ == "__main__":
     # res = clean_model_output(res)
     # aaa = json.loads(res)
     # print(json.dumps(aaa, indent=2, ensure_ascii=False))
+
+
+# =============================================================================
+# Pipeline-compatible wrapper functions (added to fix missing imports)
+# =============================================================================
+
+def generate_script_simple(prompt: str, model: str = None, api_base: str = None, api_key: str = None) -> str:
+    """
+    Simple LLM wrapper for pipeline use — OpenAI-compatible API (Ollama, etc.).
+
+    Args:
+        prompt: The prompt to send to the LLM.
+        model: Model name (defaults to config llm.model).
+        api_base: API base URL (defaults to config llm.api_base).
+        api_key: API key (defaults to config llm.api_key).
+
+    Returns:
+        str: LLM response text.
+    """
+    from openai import OpenAI
+
+    _model = model or config.get("llm.model", "deepseek-r1:32b")
+    _api_base = api_base or config.get("llm.api_base", "http://localhost:11434/v1")
+    _api_key = api_key or config.get("llm.api_key", "not-needed")
+
+    client = OpenAI(api_key=_api_key, base_url=_api_base)
+
+    # Check if model supports 'reasoning' param (deepseek-r1 style)
+    params = {"model": _model, "messages": [{"role": "user", "content": prompt}]}
+    if "deepseek-r1" in _model or "qwen3" in _model:
+        params["reasoning"] = {"type": "enabled"}
+
+    resp = client.chat.completions.create(**params)
+    return clean_model_output(resp.choices[0].message.content)

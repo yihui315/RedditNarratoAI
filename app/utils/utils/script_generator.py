@@ -369,6 +369,8 @@ class MoonshotGenerator(BaseGenerator):
 
     def _generate(self, messages: list, params: dict) -> any:
         """实现Moonshot特定的生成逻辑，包含429误重试机制"""
+        max_retries = 3
+        retry_count = 0
         while True:
             try:
                 response = self.client.chat.completions.create(
@@ -381,11 +383,16 @@ class MoonshotGenerator(BaseGenerator):
                 error_str = str(e)
                 if "Error code: 429" in error_str:
                     logger.warning("Moonshot API 触发限流，等待65秒后重试...")
-                    time.sleep(65)  # 等待65秒后重试
+                    time.sleep(65)
                     continue
                 else:
-                    logger.error(f"Moonshot generation error: {error_str}")
-                    raise
+                    retry_count += 1
+                    if retry_count >= max_retries:
+                        logger.error(f"Moonshot generation error after {max_retries} retries: {error_str}")
+                        raise
+                    logger.warning(f"Moonshot generation error (retry {retry_count}/{max_retries}): {error_str}")
+                    time.sleep(5)
+                    continue
 
     def _process_response(self, response: any) -> str:
         """处理Moonshot的响应"""

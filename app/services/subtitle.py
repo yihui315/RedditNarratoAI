@@ -7,16 +7,21 @@ from typing import Optional
 # from faster_whisper import WhisperModel
 from timeit import default_timer as timer
 from loguru import logger
-import google.generativeai as genai
+try:
+    import google.genai as genai
+except ImportError:
+    import google.generativeai as genai
 from moviepy import VideoFileClip
 import os
 
 from app.config_loader import config
 from app.utils import utils
 
-model_size = config.whisper.get("model_size", "faster-whisper-large-v2")
-device = config.whisper.get("device", "cpu")
-compute_type = config.whisper.get("compute_type", "int8")
+# Use config.get() to safely access nested config (config.whisper may not exist)
+_whisper_cfg = config.get("whisper", {}) or {}
+model_size = _whisper_cfg.get("model_size", "faster-whisper-large-v2") if isinstance(_whisper_cfg, dict) else "faster-whisper-large-v2"
+device = _whisper_cfg.get("device", "cpu") if isinstance(_whisper_cfg, dict) else "cpu"
+compute_type = _whisper_cfg.get("compute_type", "int8") if isinstance(_whisper_cfg, dict) else "int8"
 model = None
 
 
@@ -460,3 +465,57 @@ if __name__ == "__main__":
     # #
     # # if gemini_subtitle_file:
     # #     print(f"Gemini生成的字幕文件: {gemini_subtitle_file}")
+
+
+# =============================================================================
+# Pipeline-compatible wrapper functions (added to fix missing imports)
+# =============================================================================
+
+def create_srt_from_text(text: str, output_path: str = None, chars_per_second: float = 4.0) -> str:
+    """
+    Generate an SRT subtitle file from plain text with estimated timing.
+
+    Args:
+        text: The narration text to convert to subtitles.
+        output_path: Output SRT file path. If None, returned as string.
+        chars_per_second: Estimated speaking speed (chars per second, default 4.0 for Chinese).
+
+    Returns:
+        str: Path to the SRT file if output_path given, otherwise the SRT content string.
+    """
+    import re
+
+    def _mktimestamp(seconds: float) -> str:
+        h = int(seconds // 3600)
+        m = int((seconds % 3600) // 60)
+        s = seconds % 60
+        return f"{h:02d}:{m:02d}:{s:05.2f}"
+
+    # Split text into sentences (by Chinese/symbolic punctuation or newlines)
+    sentences = re.split(r'([。！？.!?\n])', text)
+    # Recombine punctuation with sentences
+    merged = []
+    for i in range(0, len(sentences) - 1, 2):
+        sent = sentences[i].strip()
+        if i + 1 < len(sentences):
+            sent += sentences[i + 1]
+        if sent:
+            merged.append(sent)
+
+    srt_lines = []
+    current_time = 0.0
+    for i, sent in enumerate(merged, start=1):
+        char_count = len(re.sub(r'\s', '', sent))
+        duration = max(char_count / chars_per_second, 1.0)
+        start_ts = _mktimestamp(current_time)
+        end_ts = _mktimestamp(current_time + duration)
+        srt_lines.append(f"{i}\n{start_ts} --> {end_ts}\n{sent}\n")
+        current_time += duration
+
+    srt_content = "\n".join(srt_lines)
+
+    if output_path:
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(srt_content)
+        return output_path
+    return srt_content
