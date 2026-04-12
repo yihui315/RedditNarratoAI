@@ -2272,38 +2272,93 @@ def indextts2_tts(text: str, voice_name: str, voice_file: str, speed: float = 1.
 
 
 # =============================================================================
-# Pipeline-compatible wrapper functions (added to fix missing imports)
+# Pipeline-compatible wrapper functions
 # =============================================================================
 
-def generate_voice(text: str, output_path: str = None, voice_name: str = None, rate: float = 1.0) -> str:
+def generate_voice(text: str, output_dir: str, config: dict = None) -> tuple:
     """
-    Per-paragraph Edge TTS wrapper for pipeline use.
+    Pipeline-compatible TTS: per-paragraph Edge TTS + merge.
 
-    Args:
-        text: Text to convert to speech.
-        output_path: Output audio file path. If None, a temp file is created.
-        voice_name: Edge TTS voice name (defaults to config tts.voice).
-        rate: Speech rate multiplier (1.0 = normal).
+    Signature matches what pipeline.py calls:
+        generate_voice(text=script, output_dir=..., config=self.config)
 
     Returns:
-        str: Path to the generated audio file.
+        tuple: (audio_path, durations_list)
     """
-    import tempfile
+    import os
     import asyncio
+    import shutil
 
-    _voice = voice_name or config.get("tts.voice", "zh-CN-XiaoxiaoNeural")
+    os.makedirs(output_dir, exist_ok=True)
 
-    if output_path is None:
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-            output_path = f.name
+    tts_cfg = (config or {}).get("tts", {}) or {}
+    voice_name = tts_cfg.get("voice", "zh-CN-XiaoxiaoNeural")
+    voice_rate_str = tts_cfg.get("rate", "+0%")
+    voice_pitch_str = tts_cfg.get("pitch", "+0Hz")
 
-    async def _do():
-        communicate = edge_tts.Communicate(
-            text,
-            _voice,
-            rate=convert_rate_to_percent(rate),
-        )
-        await communicate.save(output_path)
+    def _parse_rate(s):
+        """Parse '+50%' → 1.5, '+0%' → 1.0, etc."""
+        if isinstance(s, (int, float)):
+            return float(s)
+        try:
+            cleaned = str(s).replace('%', '').replace('Hz', '').strip()
+            return 1.0 + float(cleaned) / 100.0
+        except (ValueError, TypeError):
+            return 1.0
 
-    asyncio.run(_do())
-    return output_path
+    voice_rate = _parse_rate(voice_rate_str)
+    voice_pitch = _parse_rate(voice_pitch_str)
+
+    # Parse rate for edge_tts: "+50%" → "+50%", "-20%" → "-20%"
+    rate_str = voice_rate_str if isinstance(voice_rate_str, str) else f"+{int((voice_rate_str - 1) * 100)}%"
+    pitch_str = voice_pitch_str if isinstance(voice_pitch_str, str) else f"+{int((voice_pitch_str - 1) * 100)}Hz"
+
+    paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
+    if not paragraphs:
+        paragraphs = [text]
+
+    audio_files = []
+    durations = []
+
+    async def _gen_async():
+        for i, para in enumerate(paragraphs):
+            out_file = os.path.join(output_dir, f"voice_{i:03d}.mp3")
+            logger.info(f"[TTS] Paragraph {i+1}/{len(paragraphs)}: {para[:40]}...")
+            try:
+                communicate = edge_tts.Communicate(para, voice_name, rate=rate_str, pitch=pitch_str)
+                await communicate.save(out_file)
+                if os.path.exists(out_file):
+                    from pydub import AudioSegment
+                    clip = AudioSegment.from_mp3(out_file)
+                    audio_files.append(out_file)
+                    durations.append(len(clip) / 1000.0)
+                else:
+                    estimated = len(para) * 0.3
+                    audio_files.append(None)
+                    durations.append(estimated)
+            except Exception as e:
+                logger.warning(f"TTS paragraph {i+1} failed: {e}, estimating {len(para)*0.3}s")
+                audio_files.append(None)
+                durations.append(len(para) * 0.3)
+
+    asyncio.run(_gen_async())
+
+    if not audio_files or all(f is None for f in audio_files):
+        logger.error("No audio generated")
+        return "", []
+
+    # Merge into single file
+    final_path = os.path.join(output_dir, "narration.mp3")
+    from pydub import AudioSegment
+
+    valid_clips = [f for f in audio_files if f and os.path.exists(f)]
+    if len(valid_clips) == 1:
+        shutil.copy2(valid_clips[0], final_path)
+    elif len(valid_clips) > 1:
+        combined = AudioSegment.empty()
+        for f in valid_clips:
+            combined += AudioSegment.from_mp3(f)
+        combined.export(final_path, format="mp3")
+
+    logger.info(f"[TTS] Generated: {final_path}, durations: {durations}")
+    return final_path, durations

@@ -286,8 +286,9 @@ class RedditVideoPipeline:
 
 
 def run_pipeline(
-    reddit_url: str,
-    config_dict: dict,
+    reddit_url: str = None,
+    bilibili_id: str = None,
+    config_dict: dict = None,
     progress_callback: Optional[Callable] = None
 ) -> PipelineResult:
     """
@@ -296,4 +297,86 @@ def run_pipeline(
     pipeline = RedditVideoPipeline(config_dict)
     if progress_callback:
         pipeline.set_progress_callback(progress_callback)
-    return pipeline.run(reddit_url)
+    return pipeline.run(reddit_url or bilibili_id)
+
+
+def run_local_video_pipeline(
+    video_path: str,
+    config_dict: dict,
+    progress_callback: Optional[Callable] = None
+) -> PipelineResult:
+    """
+    本地视频模式流水线：
+    视频上传 → AI配音 → SRT字幕 → 烧录音频+字幕到视频
+
+    Args:
+        video_path: 本地视频文件路径
+        config_dict: 配置字典
+        progress_callback: 进度回调函数
+
+    Returns:
+        PipelineResult: {success, video_path, script, error}
+    """
+    import os
+    from app.services.voice import generate_voice
+    from app.services.subtitle import create_srt_from_text
+    from app.services.video import replace_video_audio_and_subtitle
+
+    result = PipelineResult(success=False)
+
+    def _update(msg: str, pct: int):
+        if progress_callback:
+            progress_callback(msg, pct)
+        logger.info(f"[{pct}%] {msg}")
+
+    try:
+        if not os.path.exists(video_path):
+            result.error = f"视频文件不存在: {video_path}"
+            return result
+
+        _update("正在生成AI解说文案...", 10)
+        # For local video mode, generate a generic narration prompt
+        script_prompt = (
+            "你是一个影视解说博主。请为这段视频写一段中文解说文案，"
+            "风格生动有趣，适合短视频平台。注意：不需要描述画面，只写解说词。\\n"
+            f"视频内容提示：用户上传了一段本地视频等待解说。"
+        )
+        from app.services.llm import generate_script_simple
+        script = generate_script_simple(script_prompt, config_dict)
+        if not script:
+            script = "这是一段精彩的视频内容，让我们一起来看看吧。"
+        _update(f"文案生成完成 ({len(script)}字)", 30)
+
+        _update("正在生成配音...", 50)
+        output_dir = os.path.join(config_dict.get("app", {}).get("output_dir", "./output"), "local_video")
+        os.makedirs(output_dir, exist_ok=True)
+        audio_path, durations = generate_voice(script, output_dir, config_dict)
+        if not audio_path or not os.path.exists(audio_path):
+            result.error = "语音生成失败"
+            return result
+        _update("配音生成完成", 70)
+
+        _update("正在生成字幕...", 80)
+        subtitle_path = create_srt_from_text(script, durations or [], output_dir)
+        _update("字幕生成完成", 85)
+
+        _update("正在合成最终视频...", 90)
+        output_path = os.path.join(output_dir, "final_with_audio.mp4")
+        final_path = replace_video_audio_and_subtitle(
+            video_path=video_path,
+            audio_path=audio_path,
+            subtitle_path=subtitle_path,
+            output_path=output_path,
+        )
+        _update("视频合成完成", 100)
+
+        result.success = True
+        result.video_path = final_path
+        result.script = script
+        logger.info(f"[local video pipeline] Done: {final_path}")
+        return result
+
+    except Exception as e:
+        logger.exception("本地视频处理失败")
+        result.error = str(e)
+        return result

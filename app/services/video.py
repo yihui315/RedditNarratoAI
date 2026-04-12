@@ -528,3 +528,106 @@ def create_video_from_segments(
         audio_clip.close()
 
     return output_path
+
+
+def replace_video_audio_and_subtitle(
+    video_path: str,
+    audio_path: str,
+    subtitle_path: str = None,
+    output_path: str = "output_with_audio.mp4",
+    font_path: str = None,
+    subtitle_style: dict = None,
+) -> str:
+    """
+    Replace/add narration audio and burn-in subtitles to an existing video.
+
+    Args:
+        video_path: Path to the original video file.
+        audio_path: Path to the narration audio file (MP3/WAV).
+        subtitle_path: Optional SRT subtitle file path.
+        output_path: Output file path.
+        font_path: Path to font file for subtitles (.ttf).
+        subtitle_style: Dict with keys: fontsize, color, stroke_color, stroke_width, position.
+
+    Returns:
+        str: Path to the output video file.
+    """
+    from moviepy import VideoFileClip, AudioFileClip
+    from moviepy.video.fx import Loop
+    import subprocess, os, srt, datetime
+
+    if not os.path.exists(video_path):
+        raise FileNotFoundError(f"Video not found: {video_path}")
+    if not os.exists(audio_path):
+        raise FileNotFoundError(f"Audio not found: {audio_path}")
+
+    style = subtitle_style or {}
+    fontsize = style.get("fontsize", 50)
+    font_color = style.get("color", "white")
+    stroke_color = style.get("stroke_color", "black")
+    stroke_width = style.get("stroke_width", 2)
+    position = style.get("position", "bottom")
+
+    video = VideoFileClip(video_path)
+    narration = AudioFileClip(audio_path)
+
+    # If narration is shorter than video, loop it; if longer, trim video
+    if narration.duration < video.duration:
+        loops_needed = int(video.duration / narration.duration) + 1
+        narration = narration.loop(n=loops_needed).with_duration(video.duration)
+    else:
+        narration = narration.with_duration(video.duration)
+
+    video = video.with_audio(narration)
+
+    # Burn in subtitles if provided
+    if subtitle_path and os.path.exists(subtitle_path):
+        try:
+            with open(subtitle_path, encoding="utf-8") as f:
+                subs = list(srt.parse(f.read()))
+
+            font = font_path or "SimHei"
+            sub_clips = []
+            for sub in subs:
+                start_s = sub.start.total_seconds()
+                end_s = sub.end.total_seconds()
+                dur = max(end_s - start_s, 0.1)
+                txt = sub.content.replace("\n", " ")
+
+                try:
+                    txt_clip = (
+                        TextClip(
+                            txt,
+                            font_size=fontsize,
+                            color=font_color,
+                            stroke_color=stroke_color,
+                            stroke_width=stroke_width,
+                            font=font,
+                            size=(video.w, None),
+                            method="caption",
+                        )
+                        .with_duration(dur)
+                        .with_start(start_s)
+                        .with_position(("center", position))
+                    )
+                    sub_clips.append(txt_clip)
+                except Exception as e:
+                    logger.warning(f"Subtitle clip failed: {e}")
+
+            if sub_clips:
+                from moviepy import CompositeVideoClip
+                video = CompositeVideoClip([video] + sub_clips, size=video.size)
+        except Exception as e:
+            logger.warning(f"Subtitle burn-in failed: {e}")
+
+    video.write_videofile(
+        output_path,
+        fps=30,
+        codec="libx264",
+        audio_codec="aac",
+        threads=2,
+        logger=None,
+    )
+    video.close()
+    narration.close()
+    return output_path

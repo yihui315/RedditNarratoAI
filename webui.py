@@ -78,13 +78,38 @@ col1, col2 = st.columns([1, 1])
 
 with col1:
     st.subheader("📥 输入")
-    reddit_url = st.text_input(
-        "Reddit帖子URL",
-        placeholder="https://reddit.com/r/AskReddit/comments/xxx 或帖子ID",
-        help="支持完整URL或纯帖子ID"
-    )
     
-    use_story_mode = st.checkbox("故事模式", value=True, help="帖子作为开头，评论作为内容")
+    # 输入模式选择
+    input_mode = st.radio("输入模式", ["Reddit 帖子", "B站视频", "本地视频"], horizontal=True)
+    
+    reddit_url = None
+    bilibili_id = None
+    local_video_path = None
+    
+    if input_mode == "Reddit 帖子":
+        reddit_url = st.text_input(
+            "Reddit帖子URL",
+            placeholder="https://reddit.com/r/AskReddit/comments/xxx 或帖子ID",
+            help="支持完整URL或纯帖子ID"
+        )
+        use_story_mode = st.checkbox("故事模式", value=True, help="帖子作为开头，评论作为内容")
+    elif input_mode == "B站视频":
+        bilibili_id = st.text_input("B站视频BV号", placeholder="BVxxxxxx", help="输入B站视频的BV号")
+        use_story_mode = False
+    else:
+        uploaded_file = st.file_uploader(
+            "上传本地视频",
+            type=["mp4", "mkv", "avi", "mov"],
+            help="支持 MP4/MKV/AVI/MOV 格式"
+        )
+        if uploaded_file:
+            import tempfile, os
+            tmp_dir = tempfile.mkdtemp()
+            local_video_path = os.path.join(tmp_dir, uploaded_file.name)
+            with open(local_video_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            st.success(f"已上传: {uploaded_file.name} ({uploaded_file.size/1024/1024:.1f} MB)")
+        use_story_mode = False
     
     generate_btn = st.button("🚀 开始生成", type="primary", use_container_width=True)
 
@@ -95,22 +120,39 @@ with col2:
     log_area = st.empty()
 
 # 处理
-if generate_btn and reddit_url:
-    log_area.text_area("日志", value="", height=200, key="log")
-    
-    def progress_callback(step: str, percent: int):
-        progress_bar.progress(percent / 100.0)
-        status_placeholder.info(step)
-        st.session_state.log += f"[{percent}%] {step}\n"
-        log_area.text_area("日志", value=st.session_state.log, height=200, key="log_refresh")
-    
-    try:
-        status_placeholder.info("开始处理...")
-        result = run_pipeline(
-            reddit_url=reddit_url,
-            config_dict=full_config,
-            progress_callback=progress_callback
-        )
+if generate_btn:
+    if input_mode == "Reddit 帖子" and not reddit_url:
+        st.error("请输入 Reddit 帖子URL")
+    elif input_mode == "B站视频" and not bilibili_id:
+        st.error("请输入 B站视频BV号")
+    elif input_mode == "本地视频" and not local_video_path:
+        st.error("请上传本地视频文件")
+    else:
+        log_area.text_area("日志", value="", height=200, key="log")
+        
+        def progress_callback(step: str, percent: int):
+            progress_bar.progress(percent / 100.0)
+            status_placeholder.info(step)
+            st.session_state.log += f"[{percent}%] {step}\n"
+            log_area.text_area("日志", value=st.session_state.log, height=200, key="log_refresh")
+        
+        try:
+            status_placeholder.info("开始处理...")
+            
+            if input_mode == "本地视频":
+                from app.pipeline import run_local_video_pipeline
+                result = run_local_video_pipeline(
+                    video_path=local_video_path,
+                    config_dict=full_config,
+                    progress_callback=progress_callback
+                )
+            else:
+                result = run_pipeline(
+                    reddit_url=reddit_url,
+                    bilibili_id=bilibili_id,
+                    config_dict=full_config,
+                    progress_callback=progress_callback
+                )
         
         if result.success:
             status_placeholder.success("🎉 视频生成成功!")

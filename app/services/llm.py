@@ -365,6 +365,82 @@ def _generate_response(prompt: str, llm_provider: str = None) -> str:
     return content.replace("\n", "")
 
 
+def generate_response_from_config(prompt: str, config_dict: dict = None, system_prompt: str = "") -> str:
+    """
+    统一LLM调用入口 — 优先读 config_dict["llm"] 配置段。
+
+    Args:
+        prompt: 用户提示词
+        config_dict: 配置字典（包含 [llm] 段）
+        system_prompt: 可选的系统提示词
+
+    Returns:
+        str: LLM 响应文本
+    """
+    llm_cfg = (config_dict or {}).get("llm", {})
+
+    if not llm_cfg or not llm_cfg.get("provider"):
+        return _generate_response(prompt)
+
+    provider = llm_cfg.get("provider", "openai")
+    api_key = llm_cfg.get("api_key", "")
+    api_base = llm_cfg.get("api_base", "")
+    model = llm_cfg.get("model", "")
+    max_tokens = llm_cfg.get("max_tokens", 4096)
+    temperature = llm_cfg.get("temperature", 0.7)
+
+    if provider == "ollama":
+        api_key = api_key or "ollama"
+        api_base = api_base or os.getenv("OLLAMA_HOST", "http://localhost:11434") + "/v1"
+    elif provider == "openai":
+        api_base = api_base or "https://api.openai.com/v1"
+    elif provider == "deepseek":
+        api_base = api_base or "https://api.deepseek.com"
+
+    if not api_key:
+        raise ValueError(f"[llm] api_key 未配置 (provider={provider})")
+    if not model:
+        raise ValueError(f"[llm] model 未配置 (provider={provider})")
+    if not api_base:
+        raise ValueError(f"[llm] api_base 未配置 (provider={provider})")
+
+    logger.info(f"[unified-llm] provider={provider}, model={model}")
+
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    if provider == "azure":
+        client = AzureOpenAI(
+            api_key=api_key,
+            api_version="2024-02-15-preview",
+            azure_endpoint=api_base,
+        )
+    else:
+        client = OpenAI(api_key=api_key, base_url=api_base)
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+
+    if response and isinstance(response, ChatCompletion):
+        return response.choices[0].message.content.strip()
+
+    raise Exception(f"[{provider}] 返回空响应")
+
+
+def generate_script_simple(prompt: str, config_dict: dict = None, system_prompt: str = "") -> str:
+    """
+    简化版文案生成接口 — 为 Pipeline 使用。
+    直接发送 prompt 给 LLM 并返回结果。
+    """
+    return generate_response_from_config(prompt, config_dict, system_prompt)
+
+
 def _generate_response_video(prompt: str, llm_provider_video: str, video_file: Union[str, TextIO]) -> str:
     """
     多模态能力大模型
@@ -822,35 +898,4 @@ if __name__ == "__main__":
     # print(json.dumps(aaa, indent=2, ensure_ascii=False))
 
 
-# =============================================================================
-# Pipeline-compatible wrapper functions (added to fix missing imports)
-# =============================================================================
 
-def generate_script_simple(prompt: str, model: str = None, api_base: str = None, api_key: str = None) -> str:
-    """
-    Simple LLM wrapper for pipeline use — OpenAI-compatible API (Ollama, etc.).
-
-    Args:
-        prompt: The prompt to send to the LLM.
-        model: Model name (defaults to config llm.model).
-        api_base: API base URL (defaults to config llm.api_base).
-        api_key: API key (defaults to config llm.api_key).
-
-    Returns:
-        str: LLM response text.
-    """
-    from openai import OpenAI
-
-    _model = model or config.get("llm.model", "deepseek-r1:32b")
-    _api_base = api_base or config.get("llm.api_base", "http://localhost:11434/v1")
-    _api_key = api_key or config.get("llm.api_key", "not-needed")
-
-    client = OpenAI(api_key=_api_key, base_url=_api_base)
-
-    # Check if model supports 'reasoning' param (deepseek-r1 style)
-    params = {"model": _model, "messages": [{"role": "user", "content": prompt}]}
-    if "deepseek-r1" in _model or "qwen3" in _model:
-        params["reasoning"] = {"type": "enabled"}
-
-    resp = client.chat.completions.create(**params)
-    return clean_model_output(resp.choices[0].message.content)
