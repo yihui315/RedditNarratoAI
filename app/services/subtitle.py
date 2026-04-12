@@ -507,7 +507,9 @@ def create_srt_from_text(text: str, output_path: str, config_dict: dict = None) 
         str: 生成的字幕文件路径
     """
     # 确保输出目录存在
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
 
     # 将文本按句子拆分
     lines = [l.strip() for l in text.split('\n') if l.strip()]

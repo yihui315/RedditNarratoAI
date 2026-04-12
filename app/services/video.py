@@ -459,6 +459,11 @@ def create_video_from_segments(
 
     output_path = os.path.join(output_dir, "final_video.mp4")
 
+    audio_clip = None
+    background = None
+    text_clips = []
+    final_video = None
+
     try:
         # 获取音频时长
         audio_clip = AudioFileClip(audio_path)
@@ -471,8 +476,6 @@ def create_video_from_segments(
         ).with_duration(total_duration).with_fps(fps)
 
         # 创建字幕文本 clips
-        text_clips = []
-
         if subtitle_path and os.path.exists(subtitle_path) and pysrt is not None:
             try:
                 subs = pysrt.open(subtitle_path)
@@ -536,13 +539,6 @@ def create_video_from_segments(
             preset='medium',
         )
 
-        # 清理
-        audio_clip.close()
-        background.close()
-        for clip in text_clips:
-            clip.close()
-        final_video.close()
-
         logger.info(f"视频导出完成: {output_path}")
         return output_path
 
@@ -550,3 +546,26 @@ def create_video_from_segments(
         logger.error(f"视频合成失败: {e}")
         logger.error(traceback.format_exc())
         return ""
+
+    finally:
+        # 清理资源，无论成功还是失败
+        for clip in text_clips:
+            try:
+                clip.close()
+            except Exception:
+                pass
+        if final_video is not None:
+            try:
+                final_video.close()
+            except Exception:
+                pass
+        if background is not None:
+            try:
+                background.close()
+            except Exception:
+                pass
+        if audio_clip is not None:
+            try:
+                audio_clip.close()
+            except Exception:
+                pass
