@@ -22,6 +22,59 @@ from moviepy import (
 from app.models.schema import VideoAspect, SubtitlePosition
 
 
+def resize_video_with_padding(clip, target_w: int, target_h: int):
+    """
+    将视频缩放到目标尺寸，保持纵横比，不足部分用黑色填充。
+
+    Args:
+        clip: MoviePy VideoClip
+        target_w: 目标宽度
+        target_h: 目标高度
+
+    Returns:
+        CompositeVideoClip: 缩放后的视频
+    """
+    from moviepy import ColorClip
+
+    src_w, src_h = clip.size
+    scale = min(target_w / src_w, target_h / src_h)
+    new_w = int(src_w * scale)
+    new_h = int(src_h * scale)
+
+    resized = clip.resized((new_w, new_h))
+
+    # If already exact size, return directly
+    if new_w == target_w and new_h == target_h:
+        return resized
+
+    # Create black background and center the resized clip
+    bg = ColorClip(size=(target_w, target_h), color=(0, 0, 0), duration=clip.duration)
+    x_offset = (target_w - new_w) // 2
+    y_offset = (target_h - new_h) // 2
+    resized = resized.with_position((x_offset, y_offset))
+    return CompositeVideoClip([bg, resized], size=(target_w, target_h))
+
+
+def loop_audio_clip(audio_clip, target_duration: float):
+    """
+    循环音频片段直到达到目标时长。
+
+    Args:
+        audio_clip: AudioFileClip
+        target_duration: 目标时长（秒）
+
+    Returns:
+        AudioFileClip: 循环后的音频
+    """
+    if audio_clip.duration >= target_duration:
+        return audio_clip.subclipped(0, target_duration)
+
+    from moviepy import concatenate_audioclips
+    loops_needed = int(target_duration / audio_clip.duration) + 1
+    looped = concatenate_audioclips([audio_clip] * loops_needed)
+    return looped.subclipped(0, target_duration)
+
+
 def wrap_text(text, max_width, font, fontsize=60):
     """
     文本自动换行处理
@@ -526,7 +579,9 @@ def create_video_from_segments(
     subtitle_path: str,
     output_dir: str,
     config: dict = None,
-    title: str = ""
+    title: str = "",
+    source_video_path: str = "",
+    bgm_path: str = "",
 ) -> Optional[str]:
     """
     高级封装：从segments创建视频（为pipeline提供的接口）
@@ -537,6 +592,12 @@ def create_video_from_segments(
     - 动态字幕（半透明背景框 + 逐条淡入淡出）
     - 9:16竖屏/1:1方形预设
     - BGM自动混音（解说时自动降低BGM音量）
+    支持:
+      - 源视频作为背景画面（Agent流水线下载的YouTube视频）
+      - 纯色背景 fallback（无源视频时）
+      - 字幕叠加（从SRT文件）
+      - BGM混合
+      - 配音音频
 
     Args:
         segments: VideoSegment列表
@@ -545,11 +606,14 @@ def create_video_from_segments(
         output_dir: 输出目录
         config: 配置字典
         title: 视频标题
+        source_video_path: 源视频路径（用作背景画面）
+        bgm_path: 背景音乐路径
 
     Returns:
         str: 输出视频路径，失败返回None
     """
     import os
+    import pysrt
     os.makedirs(output_dir, exist_ok=True)
 
     output_path = os.path.join(output_dir, "final_video.mp4")
@@ -564,6 +628,9 @@ def create_video_from_segments(
     else:
         width = video_config.get("width", 1920)
         height = video_config.get("height", 1080)
+    bgm_config = (config or {}).get("bgm", {})
+    width = video_config.get("width", 1920)
+    height = video_config.get("height", 1080)
     fps = video_config.get("fps", 30)
 
     try:
@@ -590,6 +657,40 @@ def create_video_from_segments(
         clips = [bg_clip]
 
         # Title with fade effect
+        # --- Background Layer ---
+        bg_clip = None
+        if source_video_path and os.path.exists(source_video_path):
+            try:
+                src_clip = VideoFileClip(source_video_path)
+                # Loop or trim source video to match audio duration
+                if src_clip.duration < total_duration:
+                    # Loop the source video
+                    loops_needed = int(total_duration / src_clip.duration) + 1
+                    from moviepy import concatenate_videoclips
+                    looped = concatenate_videoclips([src_clip] * loops_needed)
+                    src_clip = looped.subclipped(0, total_duration)
+                else:
+                    src_clip = src_clip.subclipped(0, total_duration)
+
+                # Resize to target dimensions
+                bg_clip = resize_video_with_padding(src_clip, width, height)
+                bg_clip = bg_clip.with_fps(fps)
+                # Mute original audio (we'll use our narration instead)
+                bg_clip = bg_clip.without_audio()
+                logger.info(f"使用源视频作为背景: {source_video_path}")
+            except Exception as e:
+                logger.warning(f"加载源视频失败，使用纯色背景: {e}")
+                bg_clip = None
+
+        if bg_clip is None:
+            # Fallback: colored background
+            from moviepy import ColorClip
+            bg_clip = ColorClip(size=(width, height), color=(30, 30, 30), duration=total_duration)
+            bg_clip = bg_clip.with_fps(fps)
+
+        clips = [bg_clip]
+
+        # --- Title overlay (first 5 seconds) ---
         if title:
             try:
                 title_display = title[:50]
@@ -615,11 +716,59 @@ def create_video_from_segments(
                 segments, width, height, subtitle_config
             )
             clips.extend(sub_clips)
+        # --- Subtitle overlay from SRT ---
+        if subtitle_path and os.path.exists(subtitle_path):
+            try:
+                subs = pysrt.open(subtitle_path)
+                font_size = subtitle_config.get("font_size", 36)
+                font_color = subtitle_config.get("color", "#FFFFFF")
+                # Strip # from hex color for moviepy
+                if font_color.startswith("#"):
+                    font_color = font_color
+
+                for sub in subs:
+                    start_sec = sub.start.ordinal / 1000.0
+                    end_sec = sub.end.ordinal / 1000.0
+                    # Clamp to video duration
+                    if start_sec >= total_duration:
+                        break
+                    end_sec = min(end_sec, total_duration)
+                    duration = end_sec - start_sec
+                    if duration <= 0:
+                        continue
+
+                    sub_text = sub.text.strip()
+                    if not sub_text:
+                        continue
+
+                    try:
+                        sub_clip = TextClip(
+                            text=sub_text,
+                            font_size=font_size,
+                            color=font_color,
+                            stroke_color='black',
+                            stroke_width=2,
+                            size=(width - 100, None),
+                            method='caption',
+                            duration=duration,
+                        )
+                        # Position at bottom with margin
+                        sub_clip = sub_clip.with_position(('center', height - 120))
+                        sub_clip = sub_clip.with_start(start_sec)
+                        clips.append(sub_clip)
+                    except Exception as e:
+                        logger.warning(f"字幕渲染失败: {e}")
+                        continue
+
+                logger.info(f"已叠加 {len(subs)} 条字幕")
+            except Exception as e:
+                logger.warning(f"字幕加载失败: {e}")
 
         # Compose video
         final_video = CompositeVideoClip(clips, size=(width, height))
 
         # Audio mixing: narration + optional BGM
+        # --- Audio mixing ---
         audio_tracks = []
         if audio_clip:
             audio_tracks.append(audio_clip)
@@ -628,6 +777,12 @@ def create_video_from_segments(
         if bgm_path and os.path.exists(bgm_path):
             try:
                 bgm_clip = AudioFileClip(bgm_path)
+        # Add BGM if available
+        actual_bgm_path = bgm_path or bgm_config.get("file", "")
+        bgm_volume = bgm_config.get("volume", 0.15)
+        if actual_bgm_path and os.path.exists(actual_bgm_path):
+            try:
+                bgm_clip = AudioFileClip(actual_bgm_path)
                 if bgm_clip.duration < total_duration:
                     bgm_clip = loop_audio_clip(bgm_clip, total_duration)
                 else:
@@ -636,6 +791,9 @@ def create_video_from_segments(
                 bgm_volume = 0.15 if audio_clip else 0.4
                 bgm_clip = bgm_clip.with_volume_scaled(bgm_volume)
                 audio_tracks.append(bgm_clip)
+                bgm_clip = bgm_clip.with_volume_scaled(bgm_volume)
+                audio_tracks.append(bgm_clip)
+                logger.info(f"已添加BGM: {actual_bgm_path} (音量: {bgm_volume})")
             except Exception as e:
                 logger.warning(f"BGM加载失败: {e}")
 
@@ -649,6 +807,8 @@ def create_video_from_segments(
 
         # Apply global fade
         final_video = _apply_fade_transition(final_video, fade_duration=0.8)
+                mixed_audio = CompositeAudioClip(audio_tracks)
+                final_video = final_video.with_audio(mixed_audio)
 
         # Write output
         final_video.write_videofile(

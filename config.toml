@@ -4,6 +4,7 @@
 [app]
 name = "RedditNarratoAI"
 version = "0.2.0"
+version = "5.0.0"
 debug = false
 
 [reddit]
@@ -14,6 +15,9 @@ creds = { }
 [llm]
 # [必填] OpenAI兼容API (支持Ollama)
 provider = "openai"  # openai / azure / ollama
+# 统一LLM配置 — Pipeline 和 Agent 共用
+# 支持 OpenAI 兼容 API (支持Ollama/DeepSeek/Azure等)
+provider = "openai"  # openai / azure / ollama / deepseek
 api_base = "http://localhost:11434/v1"  # Ollama默认地址
 api_key = "not-needed"  # Ollama不需要key
 model = "deepseek-r1:32b"  # 或 qwen2.5:32b 等
@@ -22,10 +26,11 @@ temperature = 0.7
 
 [tts]
 # [必填] TTS引擎: edge (推荐，免费) / elevenlabs / gtts / azure
+# TTS引擎: edge (推荐) / azure
 provider = "edge"
 voice = "zh-CN-XiaoxiaoNeural"  # 中文语音
-rate = "+0%"
-pitch = "+0Hz"
+rate = "+0%"    # 语速: "+0%"=正常, "+50%"=加速50%, "-20%"=减速20%
+pitch = "+0Hz"  # 语调: "+0Hz"=正常, "+10Hz"=升调
 volume = "+0%"
 
 [video]
@@ -50,9 +55,15 @@ color = "#FFFFFF"
 bg_color = "#00000080"
 position = "bottom"  # bottom / top / center
 
+[bgm]
+# 背景音乐设置
+enabled = false
+file = ""        # BGM文件路径（留空则不使用BGM）
+volume = 0.15    # BGM音量 (0.0-1.0)，建议0.1-0.2避免盖过解说
+
 [video_background]
-# 背景素材来源
-source = "auto"  # auto: AI分析选择 / reddit_images: Reddit图片 / local: 本地视频
+# 背景素材来源（Agent模式会自动使用下载的源视频）
+source = "auto"  # auto / local
 local_video_path = "./resource/videos"
 image_dir = "./resource/images"
 
@@ -67,6 +78,11 @@ max_results = 5       # 每次搜索最多返回几条
 min_views = 500000    # 最低播放量筛选
 search_period = "7d"  # 搜索最近多久的视频
 subtitle_language = "zh"  # 优先下载的字幕语言
+# Cookie设置 (解决YouTube反爬 "Sign in to confirm you're not a bot" 问题)
+cookies_from_browser = ""  # 从浏览器导入Cookie: chrome / edge / firefox / safari（留空则不使用）
+cookies_file = ""          # 手动Cookie文件路径 (Netscape格式)，优先级高于 cookies_from_browser
+# 代理设置
+proxy = ""                 # HTTP/SOCKS代理，例如 "http://127.0.0.1:7890" 或 "socks5://127.0.0.1:1080"
 
 [agents]
 # 多Agent系统设置
@@ -76,3 +92,31 @@ max_retries = 3               # 单个Agent最大重试次数
 [style]
 # 文案风格预设: suspense(悬疑) / humor(搞笑) / shock(震惊) / warm(温情) / educational(科普)
 default = "shock"
+[video_gen]
+# AI视频生成设置 (v3.0)
+mode = "moviepy"              # moviepy (本地免费) / kling / runway
+kling_api_key = ""            # Kling AI API Key
+runway_api_key = ""           # Runway API Key
+
+[pexels]
+# B-roll素材下载设置 (v3.0)
+api_key = ""                  # Pexels API Key
+max_clips = 5
+clip_duration = 10
+
+[publish]
+# 自动发布设置 (v3.0)
+auto_publish = false
+platforms = ["tiktok", "youtube_shorts"]
+tiktok_access_token = ""
+youtube_api_key = ""
+
+[dubbing]
+# v5.0: 高质克隆配音设置
+enabled = true
+gpt_sovits_api = ""          # GPT-SoVITS API地址（如 http://localhost:9880）
+
+[visual_asset]
+# v5.0: 视觉资产生成设置
+minimax_api_key = ""         # MiniMax API Key（文生图）
+vidu_api_key = ""            # Vidu API Key（文生视频，可选）

@@ -9,7 +9,7 @@ from typing import Any, Dict
 from loguru import logger
 
 from app.agents.base import BaseAgent, AgentResult
-from app.services.llm import _generate_response
+from app.services.llm import generate_response_from_config
 
 
 PLOT_ANALYSIS_PROMPT = """你是一位专业的短剧剧情分析师。请仔细阅读下面的字幕/文本内容，提取关键信息。
@@ -92,7 +92,7 @@ class PlotAnalyzerAgent(BaseAgent):
         )
 
         try:
-            raw_response = _generate_response(prompt)
+            raw_response = generate_response_from_config(prompt, self.config)
             if not raw_response:
                 return AgentResult(success=False, error="LLM返回空响应")
 

@@ -8,7 +8,7 @@ from typing import Any, Dict
 from loguru import logger
 
 from app.agents.base import BaseAgent, AgentResult
-from app.services.llm import _generate_response
+from app.services.llm import generate_response_from_config
 
 
 SCRIPT_PROMPT = """你是一位百万粉丝的短剧解说博主，擅长写出300万播放量级别的爆款解说文案。
@@ -70,7 +70,7 @@ class ScriptWriterAgent(BaseAgent):
         prompt = SCRIPT_PROMPT.format(analysis_json=analysis_json)
 
         try:
-            script = _generate_response(prompt)
+            script = generate_response_from_config(prompt, self.config)
             if not script or not script.strip():
                 return AgentResult(success=False, error="LLM返回空文案")
 

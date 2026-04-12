@@ -1,0 +1,137 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "RedditNarratoAI v3.0 Self-Iteration Feedback Schema",
+    "description": "24小时后自动采集数据，反馈给所有Agent优化下一轮生产",
+    "type": "object",
+    "properties": {
+        "video_id": {
+            "type": "string",
+            "description": "视频唯一标识"
+        },
+        "session_id": {
+            "type": "string",
+            "description": "生产会话ID"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "视频生成时间"
+        },
+        "platform_metrics": {
+            "type": "object",
+            "properties": {
+                "tiktok": {
+                    "$ref": "#/definitions/platform_metric"
+                },
+                "youtube_shorts": {
+                    "$ref": "#/definitions/platform_metric"
+                },
+                "instagram_reels": {
+                    "$ref": "#/definitions/platform_metric"
+                }
+            }
+        },
+        "aggregated_metrics": {
+            "type": "object",
+            "properties": {
+                "total_views_24h": {
+                    "type": "integer",
+                    "description": "24小时总播放量"
+                },
+                "avg_ctr": {
+                    "type": "number",
+                    "description": "平均点击率"
+                },
+                "avg_watch_time_pct": {
+                    "type": "number",
+                    "description": "平均观看完成率(%)"
+                },
+                "total_likes": {
+                    "type": "integer"
+                },
+                "total_comments": {
+                    "type": "integer"
+                },
+                "total_shares": {
+                    "type": "integer"
+                }
+            }
+        },
+        "best_script_version": {
+            "type": "string",
+            "enum": ["A", "B", "C"],
+            "description": "A/B/C测试中表现最好的版本"
+        },
+        "improvement_suggestions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "agent": {
+                        "type": "string",
+                        "description": "需要优化的Agent名称"
+                    },
+                    "suggestion": {
+                        "type": "string",
+                        "description": "优化建议"
+                    },
+                    "priority": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"]
+                    }
+                },
+                "required": ["agent", "suggestion"]
+            }
+        },
+        "prompt_update": {
+            "type": "object",
+            "properties": {
+                "script_writer": {
+                    "type": "string",
+                    "description": "更新后的文案Prompt（基于数据反馈）"
+                },
+                "seo": {
+                    "type": "string",
+                    "description": "更新后的SEO策略"
+                }
+            }
+        },
+        "iteration_number": {
+            "type": "integer",
+            "description": "当前迭代轮次"
+        }
+    },
+    "required": ["video_id", "session_id", "created_at"],
+    "definitions": {
+        "platform_metric": {
+            "type": "object",
+            "properties": {
+                "views_24h": {
+                    "type": "integer",
+                    "description": "24小时播放量"
+                },
+                "ctr": {
+                    "type": "number",
+                    "description": "点击率"
+                },
+                "watch_time_pct": {
+                    "type": "number",
+                    "description": "观看完成率(%)"
+                },
+                "likes": {
+                    "type": "integer"
+                },
+                "comments": {
+                    "type": "integer"
+                },
+                "shares": {
+                    "type": "integer"
+                },
+                "published_at": {
+                    "type": "string",
+                    "format": "date-time"
+                }
+            }
+        }
+    }
+}

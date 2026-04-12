@@ -422,7 +422,7 @@ def extract_audio_and_create_subtitle(video_file: str, subtitle_file: str = "") 
         logger.info("音频提取完成，开始生成字幕")
         
         # 使用create函数生成字幕
-        create("/Users/apple/Desktop/WhisperX-zhuanlu/1_qyn2-2_Vocals.wav", subtitle_file)
+        create(audio_file, subtitle_file)
         
         # 删除临时音频文件
         if os.path.exists(audio_file):
@@ -441,10 +441,14 @@ if __name__ == "__main__":
     task_id = "123456"
     task_dir = utils.task_dir(task_id)
     subtitle_file = f"{task_dir}/subtitle_123456.srt"
-    audio_file = "/Users/apple/Desktop/WhisperX-zhuanlu/1_qyn2-2_Vocals.wav"
-    video_file = "/Users/apple/Desktop/home/NarratoAI/storage/temp/merge/qyn2-2-720p.mp4"
+    # Provide paths via command line arguments or update with your local paths
+    audio_file = ""
+    video_file = ""
 
-    extract_audio_and_create_subtitle(video_file, subtitle_file)
+    if audio_file and video_file:
+        extract_audio_and_create_subtitle(video_file, subtitle_file)
+    else:
+        print("请设置 audio_file 和 video_file 路径后运行")
 
     # subtitles = file_to_subtitles(subtitle_file)
     # print(subtitles)
@@ -479,12 +483,19 @@ def create_srt_from_text(
 
     当提供 *durations*（TTS 实际每段时长列表）时，字幕时间轴精确对齐音频；
     未提供 durations 时回退到按字数估算（每秒4个中文字）。
+def create_srt_from_text(text: str, output_path: str, config: dict = None, durations: list = None) -> str:
+    """
+    从文本直接生成SRT字幕文件（不需要whisper模型）
+
+    如果提供了 durations 列表（来自TTS），则使用实际音频时长精确对齐字幕；
+    否则回退到按字数估算时间戳。
 
     Args:
         text: 解说文案文本
         output_path: 输出SRT文件路径
         config: 配置字典
         durations: TTS实际每段时长(秒)列表，与 text.split('\\n') 段落一一对应
+        durations: 每段的实际时长列表（秒），与段落一一对应
 
     Returns:
         str: 生成的SRT文件路径
@@ -513,6 +524,14 @@ def create_srt_from_text(
         else:
             duration_ms = int(len(para) / CHARS_PER_SECOND * 1000)
         duration_ms = max(duration_ms, MIN_DURATION_MS)
+        if durations and i < len(durations):
+            # Use actual TTS duration for precise alignment
+            duration_ms = int(durations[i] * 1000)
+        else:
+            # Fallback: estimate reading speed ~4 chars per second for Chinese
+            chars_per_second = 4.0
+            duration_ms = int(len(para) / chars_per_second * 1000)
+        duration_ms = max(duration_ms, 500)  # At least 0.5 second
 
         start_time = pysrt.SubRipTime(milliseconds=current_time_ms)
         end_time = pysrt.SubRipTime(milliseconds=current_time_ms + duration_ms)
