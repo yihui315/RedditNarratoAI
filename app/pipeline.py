@@ -399,16 +399,18 @@ def run_local_video_pipeline(
     config_dict: dict,
     progress_callback: Optional[Callable] = None,
     split_video: bool = False,
+    video_description: str = None,
 ) -> PipelineResult:
     """
     本地视频模式流水线：
-    视频上传 → AI配音 → SRT字幕 → 烧录音频+字幕到视频 → 可选切片
+    视频上传 → AI配音 → SRT字幕 → 烧录音频+字幕到视频 → 可选智能切片
 
     Args:
         video_path: 本地视频文件路径
         config_dict: 配置字典
         progress_callback: 进度回调函数
-        split_video: 是否将长视频切成多个3分钟片段
+        split_video: 是否启用智能分段（自动找自然停顿点，每段独立配音）
+        video_description: 视频内容描述（可选，用于AI生成更精准的解说）
 
     Returns:
         PipelineResult: {success, video_path, script, error}
@@ -416,7 +418,7 @@ def run_local_video_pipeline(
     import os
     from app.services.voice import generate_voice
     from app.services.subtitle import create_srt_from_text
-    from app.services.video import replace_video_audio_and_subtitle
+    from app.services.video import replace_video_audio_and_subtitle, find_silence_boundaries
 
     result = PipelineResult(success=False)
 
@@ -438,12 +440,104 @@ def run_local_video_pipeline(
         output_dir = os.path.join(config_dict.get("app", {}).get("output_dir", "./output"), "local_video")
         os.makedirs(output_dir, exist_ok=True)
 
+        # ─── 智能分段模式：每段独立配音 ───
+        if split_video and total_duration > 90:
+            _update("正在分析视频内容结构...", 5)
+
+            # Step 1: 找到自然分段点（静音/停顿检测）
+            segments = find_silence_boundaries(
+                video_path,
+                min_silence_duration=0.8,
+                silence_threshold_db=-40.0,
+                min_segment_duration=60.0,
+                max_segment_duration=240.0,
+            )
+
+            num_segments = len(segments)
+            _update(f"找到 {num_segments} 个片段，开始逐段生成配音...", 10)
+            logger.info(f"[smart split] {num_segments} segments: {segments}")
+
+            from app.services.llm import generate_script_simple
+            clips_dir = os.path.join(output_dir, "smart_clips")
+            os.makedirs(clips_dir, exist_ok=True)
+
+            all_scripts = []
+            clip_paths = []
+
+            for i, (seg_start, seg_end) in enumerate(segments):
+                seg_dur = seg_end - seg_start
+                seg_pct_base = 10 + int(70 * i / num_segments)
+
+                _update(f"片段 {i+1}/{num_segments}：生成解说文案 ({seg_dur:.0f}秒)...", seg_pct_base)
+
+                # 构建该片段的解说 Prompt
+                seg_idx_display = i + 1
+                seg_prompt = (
+                    f"你是一个影视解说博主。为视频的第{seg_idx_display}个片段写一段中文解说文案。\n"
+                    f"该片段时长约 {seg_dur:.0f} 秒。\n"
+                    f"风格要求：生动有趣，适合短视频平台，每段话要有头有尾，逻辑完整。\n"
+                    f"注意：只写解说词本身，不需要标注'第X段'等文字。"
+                )
+                if video_description:
+                    seg_prompt += f"\n视频背景：{video_description}"
+
+                script = generate_script_simple(seg_prompt, config_dict)
+                if not script or len(script.strip()) < 5:
+                    script = f"让我们继续看看接下来发生了什么！"
+                script = script.strip()
+                all_scripts.append(script)
+
+                _update(f"片段 {i+1}/{num_segments}：生成配音...", seg_pct_base + 10)
+
+                # 生成配音
+                seg_output_dir = os.path.join(clips_dir, f"seg_{i:03d}")
+                os.makedirs(seg_output_dir, exist_ok=True)
+                audio_path, durations = generate_voice(script, seg_output_dir, config_dict)
+                if not audio_path or not os.path.exists(audio_path):
+                    logger.warning(f"[smart split] TTS failed for segment {i+1}, skipping audio for this clip")
+                    audio_path = None
+                    durations = []
+
+                _update(f"片段 {i+1}/{num_segments}：生成字幕...", seg_pct_base + 20)
+
+                # 生成字幕
+                subtitle_path = None
+                if audio_path and durations:
+                    subtitle_path = create_srt_from_text(script, durations, seg_output_dir)
+
+                _update(f"片段 {i+1}/{num_segments}：合成视频片段...", seg_pct_base + 25)
+
+                # 截取原视频该片段 + 烧录新配音 + 字幕
+                clip_output = os.path.join(clips_dir, f"clip_{i:03d}.mp4")
+                _render_segment(
+                    video_path=video_path,
+                    seg_start=seg_start,
+                    seg_end=seg_end,
+                    audio_path=audio_path,
+                    subtitle_path=subtitle_path,
+                    output_path=clip_output,
+                    seg_script=script,
+                    config_dict=config_dict,
+                )
+                clip_paths.append(clip_output)
+                _update(f"片段 {i+1}/{num_segments} 完成", seg_pct_base + 35)
+
+            result.success = True
+            result.video_path = clips_dir
+            result.script = "\n\n---\n\n".join(all_scripts)
+            _update(f"全部 {num_segments} 个片段生成完毕！", 100)
+            logger.info(f"[smart split] Done: {num_segments} clips in {clips_dir}")
+            return result
+
+        # ─── 普通模式：整段一个配音 ───
         _update("正在生成AI解说文案...", 10)
 
         script_prompt = (
             "你是一个影视解说博主。请为这段视频写一段中文解说文案，"
             "风格生动有趣，适合短视频平台。注意：不需要描述画面，只写解说词。"
         )
+        if video_description:
+            script_prompt += f"\n视频背景：{video_description}"
         from app.services.llm import generate_script_simple
         script = generate_script_simple(script_prompt, config_dict)
         if not script:
@@ -464,9 +558,8 @@ def run_local_video_pipeline(
         _update("正在合成最终视频...", 88)
         final_path = os.path.join(output_dir, "final_with_audio.mp4")
 
-        # 如果视频超过3分钟且需要切片，先合成完整视频
-        if split_video and total_duration > 180:
-            # 先烧录到临时文件，再切片
+        if split_video and total_duration > 90:
+            # 固定3分钟切（兼容模式）
             tmp_final = os.path.join(output_dir, "tmp_full.mp4")
             replace_video_audio_and_subtitle(
                 video_path=video_path,
@@ -484,15 +577,13 @@ def run_local_video_pipeline(
                 max_duration=180.0,
                 overlap=3.0,
             )
-            clip_paths = [c["clip_path"] for c in clips]
             result.success = True
-            result.video_path = clips_dir  # 返回文件夹
+            result.video_path = clips_dir
             result.script = script
             _update(f"切片完成，共 {len(clips)} 个片段", 100)
             logger.info(f"[local video pipeline] Split into {len(clips)} clips")
             return result
         else:
-            # 普通模式：直接烧录
             replace_video_audio_and_subtitle(
                 video_path=video_path,
                 audio_path=audio_path,
@@ -511,4 +602,110 @@ def run_local_video_pipeline(
         logger.exception("本地视频处理失败")
         result.error = str(e)
         return result
+
+
+def _render_segment(
+    video_path: str,
+    seg_start: float,
+    seg_end: float,
+    audio_path: str,
+    subtitle_path: str,
+    output_path: str,
+    seg_script: str,
+    config_dict: dict,
+) -> str:
+    """
+    渲染单个视频片段：截取原视频 + 替换/混合音频 + 烧录字幕
+    使用 FFmpeg（已安装）处理，避免 moviepy 字幕烧录的兼容性问题
+    """
+    import subprocess, os
+
+    try:
+        seg_dur = seg_end - seg_start
+
+        # 构建 FFmpeg 命令：先切片段，再烧字幕
+        cmd = ["ffmpeg", "-y"]
+
+        # 输入1：原始视频（做视频轨道）
+        cmd += ["-i", video_path]
+
+        # 输入2：新配音音频（如果有）
+        if audio_path and os.path.exists(audio_path):
+            cmd += ["-i", audio_path]
+
+        # 时间范围：只取片段部分
+        cmd += ["-ss", str(seg_start), "-t", str(seg_dur)]
+
+        # 视频流：直接拷贝（不重新编码）
+        cmd += ["-map", "0:v"]
+
+        if audio_path and os.path.exists(audio_path):
+            # 音频用配音替换
+            cmd += ["-map", "1:a"]
+        else:
+            # 保留原音
+            cmd += ["-map", "0:a?"]
+
+        cmd += [
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-shortest",
+            output_path,
+        ]
+
+        logger.info(f"[_render_segment] ffmpeg: {' '.join(cmd)}")
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+        if proc.returncode != 0:
+            logger.warning(f"[_render_segment] ffmpeg failed: {proc.stderr[-200:]}")
+            # Fallback: moviepy
+            from moviepy import VideoFileClip, AudioFileClip
+            video = VideoFileClip(video_path).subclipped(seg_start, seg_end)
+            if audio_path and os.path.exists(audio_path):
+                new_audio = AudioFileClip(audio_path)
+                if new_audio.duration > video.duration:
+                    new_audio = new_audio.subclipped(0, video.duration)
+                from moviepy import CompositeAudioClip
+                final_audio = CompositeAudioClip([video.audio, new_audio]) if video.audio else new_audio
+            else:
+                final_audio = video.audio
+            final_video = video.with_audio(final_audio)
+            final_video.write_videofile(output_path, codec="libx264", audio_codec="aac", threads=2, logger=None)
+            final_video.close()
+            if audio_path:
+                new_audio.close()
+            video.close()
+        else:
+            logger.info(f"[_render_segment] Written: {output_path}")
+
+        # 烧录字幕（FFmpegassubs）
+        if subtitle_path and os.path.exists(subtitle_path):
+            sub_output = output_path.replace(".mp4", "_sub.mp4")
+            sub_cmd = [
+                "ffmpeg", "-y",
+                "-i", output_path,
+                "-vf", f"subtitles='{subtitle_path}':force_style='FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2'",
+                "-c:a", "copy",
+                sub_output,
+            ]
+            logger.info(f"[_render_segment] burning subs: {' '.join(sub_cmd)}")
+            sub_proc = subprocess.run(sub_cmd, capture_output=True, text=True, timeout=300)
+            if sub_proc.returncode == 0 and os.path.exists(sub_output):
+                os.replace(sub_output, output_path)
+                logger.info(f"[_render_segment] subtitles burned")
+            else:
+                logger.warning(f"[_render_segment] subtitle burn failed: {sub_proc.stderr[-200:]}")
+
+        return output_path
+
+    except Exception as e:
+        logger.exception(f"[_render_segment] Error rendering {output_path}")
+        try:
+            from moviepy import VideoFileClip
+            video = VideoFileClip(video_path).subclipped(seg_start, seg_end)
+            video.write_videofile(output_path, codec="libx264", audio_codec="aac", threads=2, logger=None)
+            video.close()
+        except:
+            pass
+        return output_path
 

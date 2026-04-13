@@ -18,6 +18,11 @@ openai>=1.77.0
 google-apiclient>=2.149.0
 google-genai>=0.0.4
 
+# 视频智能分段（可选，pip install -r requirements.txt 会安装）
+# pip install librosa soundfile  # 用于静音检测（更精准），不装也能用简化版
+numpy>=1.26.0
+librosa>=0.10.0
+
 # Reddit 数据获取
 praw>=7.8.1
 

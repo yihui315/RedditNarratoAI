@@ -1,4 +1,5 @@
 import traceback
+import numpy as np
 
 # import pysrt
 from typing import Optional
@@ -631,6 +632,199 @@ def replace_video_audio_and_subtitle(
     video.close()
     narration.close()
     return output_path
+
+
+def find_silence_boundaries(
+    video_path: str,
+    min_silence_duration: float = 0.8,
+    silence_threshold_db: float = -40.0,
+    min_segment_duration: float = 90.0,
+    max_segment_duration: float = 300.0,
+) -> list:
+    """
+    通过音频分析找到自然分段点（静音/停顿处）
+
+    Args:
+        video_path: 视频路径
+        min_silence_duration: 最短静音时长（秒），低于此值不视为分段点
+        silence_threshold_db: 静音阈值（dB），低于此值视为静音
+        min_segment_duration: 每个片段最短时长（秒）
+        max_segment_duration: 每个片段最长时长（秒），超过此值强制分段
+
+    Returns:
+        list: [(start, end), ...] 每个片段的起止时间（秒）
+    """
+    import numpy as np
+
+    try:
+        import librosa
+    except ImportError:
+        logger.warning("[slicer] librosa not installed, using simple amplitude detection")
+        return _find_silence_simple(video_path, min_silence_duration, min_segment_duration, max_segment_duration)
+
+    try:
+        # Load audio
+        y, sr = librosa.load(video_path, sr=None, mono=True)
+        duration = len(y) / sr
+
+        # Convert to dB
+        db = librosa.util.amplitude_to_db(np.abs(y), ref=np.max)
+
+        # Find silence regions
+        is_silence = db < silence_threshold_db
+
+        # Find continuous silence regions
+        silence_regions = []
+        in_silence = False
+        silence_start = 0
+
+        frame_duration = 1.0 / sr
+        for i, silence in enumerate(is_silence):
+            t = i * frame_duration
+            if silence and not in_silence:
+                in_silence = True
+                silence_start = t
+            elif not silence and in_silence:
+                in_silence = False
+                dur = t - silence_start
+                if dur >= min_silence_duration:
+                    silence_regions.append((silence_start, t))
+
+        # Build segments from silence points
+        if not silence_regions:
+            logger.warning("[slicer] No silence regions found, using uniform split")
+            return _uniform_segments(duration, min_segment_duration, max_segment_duration)
+
+        segments = []
+        seg_start = 0.0
+
+        for silence_start, silence_end in silence_regions:
+            seg_end = silence_start  # End at start of silence
+            seg_dur = seg_end - seg_start
+
+            if seg_dur >= min_segment_duration:
+                segments.append((seg_start, seg_end))
+                seg_start = silence_end  # Start after silence ends
+            elif seg_dur > 0:
+                # Too short, wait for next boundary
+                pass
+
+        # Final segment
+        if duration - seg_start >= min_segment_duration * 0.5:
+            segments.append((seg_start, duration))
+
+        # If we have too few segments, force split at max_segment_duration
+        if len(segments) < 2:
+            return _uniform_segments(duration, min_segment_duration, max_segment_duration)
+
+        # Merge any segments still exceeding max_segment_duration
+        merged = []
+        for start, end in segments:
+            while end - start > max_segment_duration:
+                # Split at midpoint
+                mid = start + max_segment_duration / 2
+                merged.append((start, mid))
+                start = mid
+            merged.append((start, end))
+
+        logger.info(f"[slicer] Found {len(merged)} segments from {len(silence_regions)} silence points")
+        for i, (s, e) in enumerate(merged):
+            logger.info(f"  clip_{i:03d}: {s:.1f}s - {e:.1f}s (dur={e-s:.1f}s)")
+        return merged
+
+    except Exception as e:
+        logger.exception("[slicer] Error finding silence boundaries")
+        return _uniform_segments(300, min_segment_duration, max_segment_duration)
+
+
+def _find_silence_simple(
+    video_path: str,
+    min_silence_duration: float,
+    min_segment_duration: float,
+    max_segment_duration: float,
+) -> list:
+    """Fallback: use moviepy to detect silence via audio amplitude"""
+    from moviepy import AudioClip
+
+    try:
+        audio = AudioClip.from_file(video_path)
+        duration = audio.duration
+        fps = audio.fps or 44100
+
+        # Sample amplitude at low fps
+        n_samples = int(duration * 2)  # 2 fps
+        times = np.linspace(0, duration, n_samples)
+
+        def get_amplitude(t):
+            frame = audio.get_frame(t)
+            return np.sqrt(np.mean(frame**2))
+
+        amplitudes = [get_amplitude(t) for t in times]
+        threshold = np.mean(amplitudes) * 0.1
+
+        silence_regions = []
+        in_silence = False
+        silence_start = 0
+
+        for i, (t, amp) in enumerate(zip(times, amplitudes)):
+            if amp < threshold and not in_silence:
+                in_silence = True
+                silence_start = t
+            elif amp >= threshold and in_silence:
+                in_silence = False
+                dur = t - silence_start
+                if dur >= min_silence_duration:
+                    silence_regions.append((silence_start, t))
+
+        # Build segments
+        segments = []
+        seg_start = 0.0
+
+        for silence_start, silence_end in silence_regions:
+            seg_end = silence_start
+            seg_dur = seg_end - seg_start
+
+            if seg_dur >= min_segment_duration:
+                segments.append((seg_start, seg_end))
+                seg_start = silence_end
+            elif seg_dur > 0:
+                pass
+
+        if duration - seg_start >= min_segment_duration * 0.5:
+            segments.append((seg_start, duration))
+
+        if len(segments) < 2:
+            return _uniform_segments(duration, min_segment_duration, max_segment_duration)
+
+        merged = []
+        for start, end in segments:
+            while end - start > max_segment_duration:
+                mid = start + max_segment_duration / 2
+                merged.append((start, mid))
+                start = mid
+            merged.append((start, end))
+
+        return merged
+
+    except Exception:
+        duration = 300
+        return _uniform_segments(duration, min_segment_duration, max_segment_duration)
+
+
+def _uniform_segments(duration: float, min_seg: float, max_seg: float) -> list:
+    """Fallback: uniform segments"""
+    segments = []
+    start = 0.0
+    while start < duration:
+        end = min(start + max_seg, duration)
+        if end - start < min_seg * 0.5 and segments:
+            # Merge with previous
+            prev = segments.pop()
+            segments.append((prev[0], end))
+        else:
+            segments.append((start, end))
+        start = end
+    return segments
 
 
 def split_video_into_clips(
