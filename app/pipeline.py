@@ -77,28 +77,34 @@ class RedditVideoPipeline:
         if self._progress_callback:
             self._progress_callback(step, percent)
     
-    def run(self, reddit_url: str, use_story_mode: bool = True) -> PipelineResult:
+    def run(self, url_or_id: str, use_story_mode: bool = True, bilibili_cookies: str = None) -> PipelineResult:
         """
         运行完整流水线
-        
+
         Args:
-            reddit_url: Reddit帖子URL或ID
+            url_or_id: Reddit帖子URL/ID，或B站 BV 号
             use_story_mode: 是否使用故事模式（帖子作为开头，评论作为内容）
-            
+            bilibili_cookies: B站 cookies 文本（用于高清下载）
+
         Returns:
             PipelineResult: 处理结果
         """
+        # Detect B站 video
+        bv_id = self._detect_bilibili(url_or_id)
+        if bv_id:
+            return self._run_bilibili(bv_id, bilibili_cookies)
+
         result = PipelineResult(success=False)
         session_id = str(uuid.uuid4())[:8]
-        
+
         try:
             # Step 1: 获取Reddit内容
             self._update_progress("正在获取Reddit内容...", 10)
-            content = self.reddit_fetcher.fetch_by_url(reddit_url)
+            content = self.reddit_fetcher.fetch_by_url(url_or_id)
             if not content:
                 result.error = "无法获取Reddit内容，请检查URL或凭证"
                 return result
-            
+
             logger.info(f"获取到帖子: {content.thread_title}")
             logger.info(f"评论数: {len(content.comments)}")
             
@@ -147,6 +153,90 @@ class RedditVideoPipeline:
             
         return result
     
+    def _detect_bilibili(self, url_or_id: str) -> str:
+        """检测是否为B站视频URL或BV号"""
+        import re
+        url_or_id = url_or_id.strip()
+        # BV号格式: BV1xx4y1X7z2
+        bv_match = re.match(r"^BV[A-Za-z0-9]{10}$", url_or_id)
+        if bv_match:
+            return url_or_id
+        # bilibili.com/video/BVxxx
+        bv_in_url = re.search(r"BV[A-Za-z0-9]{10}", url_or_id)
+        if bv_in_url:
+            return bv_in_url.group()
+        return None
+
+    def _run_bilibili(self, bv_id: str, cookies_text: str = None) -> PipelineResult:
+        """B站视频处理流程"""
+        from app.services.bilibili import download_with_cookies_flow
+        import tempfile
+
+        result = PipelineResult(success=False)
+        try:
+            tmp_dir = tempfile.mkdtemp(prefix="bili_")
+            self._update_progress(f"正在下载B站视频 {bv_id}...", 15)
+
+            dl_result = download_with_cookies_flow(
+                bv_id=bv_id,
+                output_dir=tmp_dir,
+                cookies_text=cookies_text,
+                quality="1080",
+                progress_callback=lambda msg, pct: self._update_progress(msg, pct),
+            )
+
+            if not dl_result["success"]:
+                result.error = dl_result.get("error", "B站下载失败")
+                return result
+
+            video_path = dl_result["video_path"]
+            subtitle_path = dl_result.get("subtitle_path", "")
+
+            self._update_progress("正在生成配音...", 60)
+
+            # B站视频本身有字幕，不需要AI改写文案，直接用字幕
+            # 如果有字幕文件，读取字幕内容作为script
+            script = ""
+            if subtitle_path and os.path.exists(subtitle_path):
+                try:
+                    import srt
+                    with open(subtitle_path, encoding="utf-8") as f:
+                        subs = list(srt.parse(f.read()))
+                    script = " ".join(sub.content for sub in subs)
+                except Exception:
+                    pass
+
+            if not script:
+                script = f"这是B站视频 {bv_id} 的解说内容。"
+
+            self._update_progress("正在合成配音和字幕...", 80)
+
+            # 如果有字幕，合成到视频
+            if subtitle_path and os.path.exists(subtitle_path):
+                output_path = video_path.replace("_final.mp4", "_with_sub.mp4")
+                from app.services.video import replace_video_audio_and_subtitle
+                replace_video_audio_and_subtitle(
+                    video_path=video_path,
+                    audio_path=None,  # B站视频已有音轨
+                    subtitle_path=subtitle_path,
+                    output_path=output_path,
+                )
+                video_path = output_path
+                self._update_progress("完成", 100)
+            else:
+                self._update_progress("完成（无字幕）", 100)
+
+            result.success = True
+            result.video_path = video_path
+            result.script = script
+            logger.info(f"[bilibili pipeline] Done: {bv_id}")
+            return result
+
+        except Exception as e:
+            logger.exception("[bilibili pipeline] Error")
+            result.error = str(e)
+            return result
+
     def _generate_script(self, content: RedditContent, use_story_mode: bool) -> str:
         """
         使用LLM生成解说文案
@@ -288,6 +378,7 @@ class RedditVideoPipeline:
 def run_pipeline(
     reddit_url: str = None,
     bilibili_id: str = None,
+    bilibili_cookies: str = None,
     config_dict: dict = None,
     progress_callback: Optional[Callable] = None
 ) -> PipelineResult:
@@ -297,22 +388,27 @@ def run_pipeline(
     pipeline = RedditVideoPipeline(config_dict)
     if progress_callback:
         pipeline.set_progress_callback(progress_callback)
-    return pipeline.run(reddit_url or bilibili_id)
+    return pipeline.run(
+        reddit_url or bilibili_id,
+        bilibili_cookies=bilibili_cookies,
+    )
 
 
 def run_local_video_pipeline(
     video_path: str,
     config_dict: dict,
-    progress_callback: Optional[Callable] = None
+    progress_callback: Optional[Callable] = None,
+    split_video: bool = False,
 ) -> PipelineResult:
     """
     本地视频模式流水线：
-    视频上传 → AI配音 → SRT字幕 → 烧录音频+字幕到视频
+    视频上传 → AI配音 → SRT字幕 → 烧录音频+字幕到视频 → 可选切片
 
     Args:
         video_path: 本地视频文件路径
         config_dict: 配置字典
         progress_callback: 进度回调函数
+        split_video: 是否将长视频切成多个3分钟片段
 
     Returns:
         PipelineResult: {success, video_path, script, error}
@@ -334,12 +430,19 @@ def run_local_video_pipeline(
             result.error = f"视频文件不存在: {video_path}"
             return result
 
+        from moviepy import VideoFileClip
+        video_clip = VideoFileClip(video_path)
+        total_duration = video_clip.duration
+        video_clip.close()
+
+        output_dir = os.path.join(config_dict.get("app", {}).get("output_dir", "./output"), "local_video")
+        os.makedirs(output_dir, exist_ok=True)
+
         _update("正在生成AI解说文案...", 10)
-        # For local video mode, generate a generic narration prompt
+
         script_prompt = (
             "你是一个影视解说博主。请为这段视频写一段中文解说文案，"
-            "风格生动有趣，适合短视频平台。注意：不需要描述画面，只写解说词。\\n"
-            f"视频内容提示：用户上传了一段本地视频等待解说。"
+            "风格生动有趣，适合短视频平台。注意：不需要描述画面，只写解说词。"
         )
         from app.services.llm import generate_script_simple
         script = generate_script_simple(script_prompt, config_dict)
@@ -348,8 +451,6 @@ def run_local_video_pipeline(
         _update(f"文案生成完成 ({len(script)}字)", 30)
 
         _update("正在生成配音...", 50)
-        output_dir = os.path.join(config_dict.get("app", {}).get("output_dir", "./output"), "local_video")
-        os.makedirs(output_dir, exist_ok=True)
         audio_path, durations = generate_voice(script, output_dir, config_dict)
         if not audio_path or not os.path.exists(audio_path):
             result.error = "语音生成失败"
@@ -360,15 +461,45 @@ def run_local_video_pipeline(
         subtitle_path = create_srt_from_text(script, durations or [], output_dir)
         _update("字幕生成完成", 85)
 
-        _update("正在合成最终视频...", 90)
-        output_path = os.path.join(output_dir, "final_with_audio.mp4")
-        final_path = replace_video_audio_and_subtitle(
-            video_path=video_path,
-            audio_path=audio_path,
-            subtitle_path=subtitle_path,
-            output_path=output_path,
-        )
-        _update("视频合成完成", 100)
+        _update("正在合成最终视频...", 88)
+        final_path = os.path.join(output_dir, "final_with_audio.mp4")
+
+        # 如果视频超过3分钟且需要切片，先合成完整视频
+        if split_video and total_duration > 180:
+            # 先烧录到临时文件，再切片
+            tmp_final = os.path.join(output_dir, "tmp_full.mp4")
+            replace_video_audio_and_subtitle(
+                video_path=video_path,
+                audio_path=audio_path,
+                subtitle_path=subtitle_path,
+                output_path=tmp_final,
+            )
+            _update("正在切片...", 93)
+
+            from app.services.video import split_video_into_clips
+            clips_dir = os.path.join(output_dir, "clips")
+            clips = split_video_into_clips(
+                video_path=tmp_final,
+                output_dir=clips_dir,
+                max_duration=180.0,
+                overlap=3.0,
+            )
+            clip_paths = [c["clip_path"] for c in clips]
+            result.success = True
+            result.video_path = clips_dir  # 返回文件夹
+            result.script = script
+            _update(f"切片完成，共 {len(clips)} 个片段", 100)
+            logger.info(f"[local video pipeline] Split into {len(clips)} clips")
+            return result
+        else:
+            # 普通模式：直接烧录
+            replace_video_audio_and_subtitle(
+                video_path=video_path,
+                audio_path=audio_path,
+                subtitle_path=subtitle_path,
+                output_path=final_path,
+            )
+            _update("视频合成完成", 100)
 
         result.success = True
         result.video_path = final_path
@@ -380,3 +511,4 @@ def run_local_video_pipeline(
         logger.exception("本地视频处理失败")
         result.error = str(e)
         return result
+

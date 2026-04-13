@@ -631,3 +631,87 @@ def replace_video_audio_and_subtitle(
     video.close()
     narration.close()
     return output_path
+
+
+def split_video_into_clips(
+    video_path: str,
+    output_dir: str,
+    max_duration: float = 180.0,
+    overlap: float = 3.0,
+    min_clip_duration: float = 30.0,
+) -> list:
+    """
+    将长视频智能切割为多个短片段（适合短视频平台）
+
+    Args:
+        video_path: 输入视频路径
+        output_dir: 输出目录（每个片段单独文件夹）
+        max_duration: 每个片段最大时长（秒），默认 180s = 3分钟
+        overlap: 片段之间的重叠时长（秒）
+        min_clip_duration: 最小片段时长（秒），低于此值会合并到前一个片段
+
+    Returns:
+        list: 每个片段的信息 [{clip_path, start, end, duration}, ...]
+    """
+    from moviepy import VideoFileClip
+    import math
+
+    os.makedirs(output_dir, exist_ok=True)
+    video = VideoFileClip(video_path)
+    total = video.duration
+
+    clips = []
+    current = 0.0
+    clip_idx = 0
+
+    while current < total:
+        clip_end = min(current + max_duration, total)
+        clip_out = os.path.join(output_dir, f"clip_{clip_idx:03d}.mp4")
+
+        subclip = video.subclipped(current, clip_end)
+        subclip.write_videofile(
+            clip_out,
+            codec="libx264",
+            audio_codec="aac",
+            threads=2,
+            logger=None,
+        )
+        subclip.close()
+
+        clips.append({
+            "clip_path": clip_out,
+            "start": current,
+            "end": clip_end,
+            "duration": clip_end - current,
+        })
+
+        current = clip_end - overlap
+        if current < 0:
+            current = clip_end
+        clip_idx += 1
+
+    video.close()
+
+    # Merge very short clips into previous ones
+    merged = []
+    skip_next = False
+    for i, clip in enumerate(clips):
+        if skip_next:
+            skip_next = False
+            continue
+        if clip["duration"] < min_clip_duration and i < len(clips) - 1:
+            # Merge with next
+            next_clip = clips[i + 1]
+            merged[-1]["end"] = next_clip["end"]
+            merged[-1]["duration"] = merged[-1]["end"] - merged[-1]["start"]
+            # Re-encode merged clip
+            from moviepy import VideoFileClip, concatenate_videoclips
+            v = VideoFileClip(video_path).subclipped(merged[-1]["start"], merged[-1]["end"])
+            v.write_videofile(merged[-1]["clip_path"], codec="libx264", audio_codec="aac", threads=2, logger=None)
+            v.close()
+            skip_next = True
+        else:
+            merged.append(clip)
+
+    logger.info(f"[slicer] Split into {len(merged)} clips")
+    return merged

@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+output/
+*.log
+*.mp4
+*.mp3
+*.srt
+venv/
+.venv/
+*.egg-info/
+.pytest_cache/

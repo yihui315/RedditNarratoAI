@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  reddit-narratoai:
+    build: .
+    container_name: reddit-narratoai
+    ports:
+      - "8501:8501"
+    volumes:
+      # Mount local dirs for persistence
+      - ./output:/app/output
+      # Optional: B站 cookies for HD download
+      # - ./cookies.txt:/app/cookies.txt:ro
+    environment:
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_SERVER_PORT=8501
+    restart: unless-stopped
+    cpus: '4'
+    mem_limit: 8g

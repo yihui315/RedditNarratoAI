@@ -144,12 +144,14 @@ if generate_btn:
                 result = run_local_video_pipeline(
                     video_path=local_video_path,
                     config_dict=full_config,
-                    progress_callback=progress_callback
+                    progress_callback=progress_callback,
+                    split_video=split_long_video,
                 )
             else:
                 result = run_pipeline(
                     reddit_url=reddit_url,
                     bilibili_id=bilibili_id,
+                    bilibili_cookies=cookies_text if input_mode == "B站视频" else None,
                     config_dict=full_config,
                     progress_callback=progress_callback
                 )
