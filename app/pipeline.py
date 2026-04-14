@@ -440,74 +440,114 @@ def run_local_video_pipeline(
         output_dir = os.path.join(config_dict.get("app", {}).get("output_dir", "./output"), "local_video")
         os.makedirs(output_dir, exist_ok=True)
 
-        # ─── 智能分段模式：每段独立配音 ───
+        # ─── 智能分段模式：Whisper分析 + 高光检测 + 每段独立配音 ───
         if split_video and total_duration > 90:
-            _update("正在分析视频内容结构...", 5)
+            from app.services.audio_analysis import analyze_video_content, find_highlight_segments
 
-            # Step 1: 找到自然分段点（静音/停顿检测）
-            segments = find_silence_boundaries(
-                video_path,
-                min_silence_duration=0.8,
-                silence_threshold_db=-40.0,
-                min_segment_duration=60.0,
-                max_segment_duration=240.0,
+            _update("正在用 Whisper 分析视频内容...", 5)
+
+            # Step 1: Whisper 自动分析（转写 + 内容描述 + 高光分段）
+            analysis = analyze_video_content(
+                video_path=video_path,
+                progress_callback=lambda msg, pct: _update(f"[Whisper] {msg}", pct),
             )
 
+            # 优先用 AI 自动生成的内容描述，用户填写则合并
+            auto_description = analysis.get("description", "")
+            if video_description and auto_description:
+                # 合并：用户描述补充 AI 描述
+                final_description = f"{auto_description}\n\n用户补充：{video_description}"
+            elif video_description:
+                final_description = video_description
+            else:
+                final_description = auto_description
+
+            # 获取分段点：高光检测 > 静音检测 > uniform fallback
+            whisper_segments = analysis.get("segments", [])
+            if whisper_segments:
+                segments = whisper_segments
+                logger.info(f"[smart split] Using Whisper/highlight segments: {segments}")
+            else:
+                # fallback: 高光检测
+                _update("正在检测高光片段...", 20)
+                hl = find_highlight_segments(
+                    video_path=video_path,
+                    min_peak_gap=45.0,
+                    energy_percentile=0.75,
+                    min_segment_duration=60.0,
+                    max_segment_duration=240.0,
+                )
+                segments = [(s, e) for s, e, _ in hl]
+                if not segments:
+                    # 最后 fallback: 静音检测
+                    _update("使用静音检测分段...", 25)
+                    segments = find_silence_boundaries(
+                        video_path,
+                        min_silence_duration=0.8,
+                        silence_threshold_db=-40.0,
+                        min_segment_duration=60.0,
+                        max_segment_duration=240.0,
+                    )
+
             num_segments = len(segments)
-            _update(f"找到 {num_segments} 个片段，开始逐段生成配音...", 10)
-            logger.info(f"[smart split] {num_segments} segments: {segments}")
+            _update(f"视频分析完成，共 {num_segments} 个片段，开始逐段生成配音...", 30)
 
             from app.services.llm import generate_script_simple
             clips_dir = os.path.join(output_dir, "smart_clips")
             os.makedirs(clips_dir, exist_ok=True)
 
             all_scripts = []
-            clip_paths = []
+            whisper_transcript = analysis.get("transcript", "")
 
             for i, (seg_start, seg_end) in enumerate(segments):
                 seg_dur = seg_end - seg_start
-                seg_pct_base = 10 + int(70 * i / num_segments)
+                seg_pct_base = 30 + int(65 * i / num_segments)
 
                 _update(f"片段 {i+1}/{num_segments}：生成解说文案 ({seg_dur:.0f}秒)...", seg_pct_base)
 
-                # 构建该片段的解说 Prompt
+                # 构建该片段的解说 Prompt（融合 Whisper 转写内容）
                 seg_idx_display = i + 1
                 seg_prompt = (
                     f"你是一个影视解说博主。为视频的第{seg_idx_display}个片段写一段中文解说文案。\n"
                     f"该片段时长约 {seg_dur:.0f} 秒。\n"
                     f"风格要求：生动有趣，适合短视频平台，每段话要有头有尾，逻辑完整。\n"
-                    f"注意：只写解说词本身，不需要标注'第X段'等文字。"
                 )
-                if video_description:
-                    seg_prompt += f"\n视频背景：{video_description}"
+                if whisper_transcript:
+                    # 加入该片段对应时间范围内的转写片段作为参考
+                    seg_transcript_parts = []
+                    for seg in analysis.get("whisper_segments", []):
+                        if seg.get("start", 0) >= seg_start - 5 and seg.get("end", 0) <= seg_end + 5:
+                            seg_transcript_parts.append(seg["text"])
+                    if seg_transcript_parts:
+                        seg_prompt += f"\n该片段的语音内容（参考）：{' '.join(seg_transcript_parts[:5])}"
+                if final_description:
+                    seg_prompt += f"\n\n视频背景：{final_description[:500]}"
 
                 script = generate_script_simple(seg_prompt, config_dict)
                 if not script or len(script.strip()) < 5:
-                    script = f"让我们继续看看接下来发生了什么！"
+                    script = "让我们继续看看接下来发生了什么！"
                 script = script.strip()
                 all_scripts.append(script)
 
-                _update(f"片段 {i+1}/{num_segments}：生成配音...", seg_pct_base + 10)
+                _update(f"片段 {i+1}/{num_segments}：生成配音...", seg_pct_base + 12)
 
                 # 生成配音
                 seg_output_dir = os.path.join(clips_dir, f"seg_{i:03d}")
                 os.makedirs(seg_output_dir, exist_ok=True)
                 audio_path, durations = generate_voice(script, seg_output_dir, config_dict)
                 if not audio_path or not os.path.exists(audio_path):
-                    logger.warning(f"[smart split] TTS failed for segment {i+1}, skipping audio for this clip")
+                    logger.warning(f"[smart split] TTS failed for segment {i+1}, skipping audio")
                     audio_path = None
                     durations = []
 
                 _update(f"片段 {i+1}/{num_segments}：生成字幕...", seg_pct_base + 20)
 
-                # 生成字幕
                 subtitle_path = None
                 if audio_path and durations:
                     subtitle_path = create_srt_from_text(script, durations, seg_output_dir)
 
                 _update(f"片段 {i+1}/{num_segments}：合成视频片段...", seg_pct_base + 25)
 
-                # 截取原视频该片段 + 烧录新配音 + 字幕
                 clip_output = os.path.join(clips_dir, f"clip_{i:03d}.mp4")
                 _render_segment(
                     video_path=video_path,
@@ -519,12 +559,17 @@ def run_local_video_pipeline(
                     seg_script=script,
                     config_dict=config_dict,
                 )
-                clip_paths.append(clip_output)
                 _update(f"片段 {i+1}/{num_segments} 完成", seg_pct_base + 35)
+
+            # 附上 Whisper 完整转写
+            full_script = ""
+            if whisper_transcript:
+                full_script = f"【Whisper 完整转写】\n{whisper_transcript}\n\n"
+            full_script += "\n\n---\n\n".join(all_scripts)
 
             result.success = True
             result.video_path = clips_dir
-            result.script = "\n\n---\n\n".join(all_scripts)
+            result.script = full_script
             _update(f"全部 {num_segments} 个片段生成完毕！", 100)
             logger.info(f"[smart split] Done: {num_segments} clips in {clips_dir}")
             return result

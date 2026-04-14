@@ -42,7 +42,8 @@ translators>=5.9.9
 # gTTS>=2.5.4
 
 # 可选:视频处理
-# faster-whisper>=1.0.1
+faster-whisper>=1.0.1  # Whisper视频理解（自动生成内容描述）
+scipy>=1.11.0          # 高光峰值检测（from scipy.signal import find_peaks)
 # opencv-python>=4.11.0.86
 # pyJianYingDraft>=0.1.0
 
