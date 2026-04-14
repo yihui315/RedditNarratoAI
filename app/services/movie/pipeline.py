@@ -402,11 +402,12 @@ class MovieNarrationPipeline:
         try:
             from scenedetect import SceneManager, VideoManager
             from scenedetect.detectors import ContentDetector
-            video_mgr = VideoManager.from_file(video_path)
+            # scenedetect 0.6.x API: VideoManager 接收路径列表
+            video_mgr = VideoManager([video_path])
             sm = SceneManager()
             sm.add_detector(ContentDetector(threshold=self.cfg.scene_threshold))
             video_mgr.start()
-            sm.detect_scenes(frame_source=video_mgr)
+            sm.detect_scenes(video_mgr)
             scenes = sm.get_scene_list()
             result = []
             for i, scene in enumerate(scenes):
@@ -794,7 +795,12 @@ class MovieNarrationPipeline:
     def _stage_scene_prompts(self, script_path: str, scenes_path: str) -> StageResult:
         """MiniMax 2.7: 为每句旁白生成 HyDE 镜头检索提示"""
         self._update("正在生成镜头提示（HyDE）...", 80)
-        output = self.work_dir / "scene_prompts" / Path(script_path).name
+        # Determine part number from script path: scripts/script_part1.json → part1
+        script_name = Path(script_path).name  # e.g. "script_part1.json"
+        import re
+        m = re.search(r"part(\d+)", script_name)
+        part_num = int(m.group(1)) if m else 1
+        output = self.work_dir / "scene_prompts" / f"scene_prompts_part{part_num}.json"
 
         with open(script_path, encoding="utf-8") as f:
             script = json.load(f)
