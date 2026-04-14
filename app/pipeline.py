@@ -141,6 +141,45 @@ class RedditVideoPipeline:
             )
             
             if video_path and os.path.exists(video_path):
+                # ─── 背景视频叠加 ───
+                bg_cfg = self.config.get("background", {})
+                if bg_cfg.get("enable"):
+                    self._update_progress("正在叠加背景视频...", 92)
+                    from app.services.background import (
+                        get_random_background_video,
+                        overlay_video_on_background,
+                        chop_background_video,
+                    )
+                    bg_path = get_random_background_video()
+                    if bg_path:
+                        # 截取合适长度的背景片段
+                        import os
+                        temp_bg_dir = str(self.output_dir / session_id)
+                        os.makedirs(temp_bg_dir, exist_ok=True)
+                        bg_video, bg_audio = chop_background_video(
+                            background_video_path=bg_path,
+                            target_duration=max(
+                                30.0,
+                                sum(s.end - s.start for s in segments) if segments else 30.0
+                            ),
+                            output_dir=temp_bg_dir,
+                            reddit_id=session_id,
+                        )
+                        if bg_video and os.path.exists(bg_video):
+                            final_output = video_path.replace(".mp4", "_bg.mp4")
+                            overlay_video_on_background(
+                                foreground_video_path=video_path,
+                                background_video_path=bg_video,
+                                output_path=final_output,
+                                background_volume=bg_cfg.get("volume", 0.25),
+                                narration_volume=1.0,
+                                progress_callback=lambda m, p: self._update_progress(f"[背景] {m}", p),
+                            )
+                            if os.path.exists(final_output):
+                                video_path = final_output
+                                result.video_path = final_output
+                                self._update_progress("背景叠加完成", 95)
+
                 result.success = True
                 result.video_path = video_path
                 self._update_progress("视频生成完成!", 100)

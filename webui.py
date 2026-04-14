@@ -64,11 +64,42 @@ with st.sidebar:
         index=0,
     )
 
+    # 背景视频
+    st.subheader("🎬 背景视频")
+    bg_enable = st.checkbox("启用背景视频叠加", value=False, help="在素材背景视频上叠加解说画面，画中画效果")
+    bg_theme = None
+    if bg_enable:
+        bg_theme = st.selectbox(
+            "背景主题",
+            ["随机", "代码", "自然森林", "城市夜景", "抽象蓝色", "简约平静", "游戏画面", "太空黑暗", "海岸波浪"],
+            index=0,
+        )
+    bg_volume = st.slider("背景音量", 0.0, 1.0, 0.25, help="背景音乐音量（0=静音）")
+
+    # 内容过滤
+    st.subheader("🛡️ 内容过滤")
+    blocked_words = st.text_input(
+        "屏蔽词（逗号分隔）",
+        value="",
+        placeholder="nsfw, spoiler, 政治",
+        help="含这些词的帖子/评论会被自动跳过",
+    )
+
+    # GPU 加速
+    st.subheader("⚡ 性能")
+    use_gpu = st.checkbox("GPU 硬件加速", value=True, help="使用 NVIDIA/AMD 显卡加速编码（推荐）")
+
     full_config = {
-        "reddit": {"creds": reddit_creds},
+        "reddit": {"creds": reddit_creds, "blocked_words": blocked_words},
         "llm": llm_config,
         "tts": {"provider": "edge", "voice": voice},
         "app": {"output_dir": "./output"},
+        "background": {
+            "enable": bg_enable,
+            "theme": bg_theme if bg_theme and bg_theme != "随机" else None,
+            "volume": bg_volume,
+        },
+        "video": {"use_gpu": use_gpu},
     }
 
 # ── 主界面 ──────────────────────────────────────────────

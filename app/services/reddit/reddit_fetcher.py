@@ -169,7 +169,9 @@ class RedditFetcher:
                 continue
             if comment.body in ["[removed]", "[deleted]"]:
                 continue
-            
+            if self._contains_blocked_words(comment.body):
+                continue  # 跳过含屏蔽词的评论
+
             content.comments.append({
                 "comment_body": comment.body,
                 "comment_url": f"https://reddit.com{comment.permalink}",
@@ -179,7 +181,18 @@ class RedditFetcher:
             })
         
         return content
-    
+
+    def _contains_blocked_words(self, text: str) -> bool:
+        """检查文本是否含配置中的屏蔽词"""
+        blocked_raw = self.config.get("reddit", {}).get("blocked_words", "")
+        if not blocked_raw:
+            return False
+        blocked = [w.strip().lower() for w in blocked_raw.split(",") if w.strip()]
+        if not blocked:
+            return False
+        text_lower = text.lower()
+        return any(word in text_lower for word in blocked)
+
     def get_askreddit_story(self, post_id: str) -> Optional[RedditContent]:
         """
         获取AskReddit风格的帖子，用于故事模式

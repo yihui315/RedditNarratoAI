@@ -62,7 +62,8 @@ class Config:
                 "output_dir": "./output"
             },
             "reddit": {
-                "creds": {}
+                "creds": {},
+                "blocked_words": "",  # 逗号分隔的敏感词列表，含这些词的帖子/评论自动跳过
             },
             "llm": {
                 "provider": "openai",
